@@ -100,4 +100,24 @@ public:
 protected:
 	virtual void NotifyControllerChanged() override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+
+	/** "올라가기" 몽타주 참조 (블루프린트에서 할당) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Climbing)
+	UAnimMontage* ClimbMontageRef;
+
+	/** 애니메이션 진행률 (0.0 ~ 1.0) 에 따른 Z 오프셋 커브 (블루프린트에서 설정) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Climbing)
+	UCurveFloat* ClimbZOffsetCurve;
+
+	// 클라이밍 시작 시점의 캐릭터 위치
+	FVector StartClimbLocation;
+
+	// 몽타주가 시작될 때의 타임 스탬프 (재생 시간을 추적하기 위함)
+	float MontageStartTime;
+
+	// 몽타주의 총 길이 (한 번만 계산)
+	float MontageTotalLength;
+
+	// 클라이밍 시작 시 몽타주가 이미 재생 중이었는지 (재시작 방지)
+	bool bMontageAlreadyPlayingOnClimb;
 };
