@@ -14,7 +14,9 @@
 #include "Kismet/KismetMathLibrary.h" // UKismetMathLibrary 포함
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimInstance.h"
+#include "Kismet/GameplayStatics.h" // UGameplayStatics::SetGlobalTimeDilation을 위해 포함
 
+// 기존 로그 카테고리 정의
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
 
 //////////////////////////////////////////////////////////////////////////
@@ -66,6 +68,12 @@ ATestProject2Character::ATestProject2Character()
 	MontageStartTime = 0.0f;
 	MontageTotalLength = 600.0f;
 	bMontageAlreadyPlayingOnClimb = false;
+
+	// =============== 슬로우 모션 변수 초기화 시작 ===============
+	bIsSlowMotionActive = false;
+	SlowMotionTimeDilationTarget = 0.2f; // 기본 슬로우 모션 속도 (20%)
+	SlowMotionTransitionSpeed = 2.0f; // 기본 전환 속도
+	// =============== 슬로우 모션 변수 초기화 끝 ===============
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -102,6 +110,13 @@ void ATestProject2Character::SetupPlayerInputComponent(UInputComponent* PlayerIn
 
 		// "올라가기" 액션 바인딩
 		EnhancedInputComponent->BindAction(ClimbAction, ETriggerEvent::Started, this, &ATestProject2Character::TryClimb);
+
+		// =============== 슬로우 모션 토글 바인딩 시작 ===============
+		if (ToggleSlowMotionAction)
+		{
+			EnhancedInputComponent->BindAction(ToggleSlowMotionAction, ETriggerEvent::Started, this, &ATestProject2Character::ToggleSlowMotion); //
+		}
+		// =============== 슬로우 모션 토글 바인딩 끝 ===============
 	}
 	else
 	{
@@ -229,10 +244,50 @@ void ATestProject2Character::TryClimb()
 	}
 }
 
+// =============== 슬로우 모션 토글 함수 시작 ===============
+void ATestProject2Character::ToggleSlowMotion()
+{
+	bIsSlowMotionActive = !bIsSlowMotionActive; // 슬로우 모션 상태 토글
+
+	// 기존 타이머가 있다면 클리어
+	GetWorldTimerManager().ClearTimer(SlowMotionTimerHandle); //
+
+	// 새 타이머 시작 (UpdateSlowMotionDilation 함수를 반복 호출)
+	GetWorldTimerManager().SetTimer(
+		SlowMotionTimerHandle,
+		this,
+		&ATestProject2Character::UpdateSlowMotionDilation,
+		0.01f, // 업데이트 주기 (예: 100fps로 업데이트)
+		true   // 루핑
+	);
+}
+
+// =============== 시간 딜레이 업데이트 함수 시작 ===============
+void ATestProject2Character::UpdateSlowMotionDilation()
+{
+	float CurrentDilation = UGameplayStatics::GetGlobalTimeDilation(this); //
+	float TargetDilation = bIsSlowMotionActive ? SlowMotionTimeDilationTarget : 1.0f; //
+
+	// Lerp (선형 보간)를 사용하여 부드럽게 시간 딜레이 변경
+	float NewDilation = FMath::FInterpTo(CurrentDilation, TargetDilation, GetWorld()->GetDeltaSeconds(), SlowMotionTransitionSpeed); //
+
+	UGameplayStatics::SetGlobalTimeDilation(this, NewDilation); //
+
+	// 목표 딜레이에 거의 도달했으면 타이머 중지
+	if (FMath::IsNearlyEqual(NewDilation, TargetDilation, 0.01f)) // 오차 범위 0.01f
+	{
+		UGameplayStatics::SetGlobalTimeDilation(this, TargetDilation); // 정확히 목표 값으로 설정
+		GetWorldTimerManager().ClearTimer(SlowMotionTimerHandle); // 타이머 중지
+	}
+}
+// =============== 시간 딜레이 업데이트 함수 끝 ===============
+
+
 void ATestProject2Character::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	// Climb 로직은 그대로 유지
 	if (bIsClimbing)
 	{
 		UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;

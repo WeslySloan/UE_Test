@@ -1,4 +1,3 @@
-
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #pragma once
@@ -13,7 +12,7 @@ class UCameraComponent;
 class UInputMappingContext;
 class UInputAction;
 struct FInputActionValue;
-class UInputAction; // Forward declaration (추가분)
+
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 
 UCLASS(config = Game)
@@ -49,6 +48,8 @@ class ATestProject2Character : public ACharacter
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputAction* ClimbAction;
 
+	// =============== 슬로우 모션 추가 부분 끝 ===============
+
 protected:
 
 	/** Called for movement input */
@@ -67,7 +68,7 @@ protected:
 
 	/** 올라가는 속도 */
 	UPROPERTY(EditDefaultsOnly, Category = Climbing)
-	float ClimbSpeed;
+	float ClimbSpeed; // 이 값은 현재 Tick에서 사용되지 않음
 
 	/** 올라가는 중인지 여부 */
 	bool bIsClimbing;
@@ -95,7 +96,7 @@ public:
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 
-	virtual void Tick(float DeltaTime) override;
+	virtual void Tick(float DeltaTime) override; // Tick 함수에서 UpdateSlowMotionDilation 호출 대신 타이머 사용
 
 protected:
 	virtual void NotifyControllerChanged() override;
@@ -120,4 +121,30 @@ protected:
 
 	// 클라이밍 시작 시 몽타주가 이미 재생 중이었는지 (재시작 방지)
 	bool bMontageAlreadyPlayingOnClimb;
+
+	// =============== 슬로우 모션 추가 부분 시작 ===============
+/** 슬로우 모션 토글 Input Action */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	UInputAction* ToggleSlowMotionAction; // IA_ToggleSlowMotion과 매핑될 액션
+
+	/** 슬로우 모션 활성 여부 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SlowMotion")
+	bool bIsSlowMotionActive;
+
+	/** 슬로우 모션 시간 비율 (예: 0.2) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "SlowMotion")
+	float SlowMotionTimeDilationTarget; // 목표 시간 딜레이 값 (0.2, 1.0)
+
+	/** 슬로우 모션 전환 속도 (Lerp에 사용, 초당 Time Dilation 변화량) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "SlowMotion")
+	float SlowMotionTransitionSpeed;
+
+	/** 슬로우 모션 전환 타이머 핸들 */
+	FTimerHandle SlowMotionTimerHandle;
+
+	/** 슬로우 모션 활성화/비활성화 토글 함수 */
+	void ToggleSlowMotion();
+
+	/** 시간 딜레이를 부드럽게 업데이트하는 함수 */
+	void UpdateSlowMotionDilation();
 };
