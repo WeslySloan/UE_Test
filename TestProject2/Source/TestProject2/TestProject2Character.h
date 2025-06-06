@@ -48,9 +48,37 @@ class ATestProject2Character : public ACharacter
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	UInputAction* ClimbAction;
 
-	// =============== 슬로우 모션 추가 부분 끝 ===============
+protected: // 이 protected 섹션에 슬로우 모션 관련 함수와 기존 protected 멤버들이 위치합니다.
 
-protected:
+	// =============== 슬로우 모션 및 흑백화 관련 UPROPERTY 추가 부분 시작 ===============
+	/** 슬로우 모션 토글 Input Action */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	UInputAction* ToggleSlowMotionAction; // IA_ToggleSlowMotion과 매핑될 액션
+
+	/** 슬로우 모션 활성 여부 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SlowMotion")
+	bool bIsSlowMotionActive;
+
+	/** 슬로우 모션 시간 비율 (예: 0.2) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "SlowMotion")
+	float SlowMotionTimeDilationTarget; // 목표 시간 딜레이 값 (0.2, 1.0)
+
+	/** 슬로우 모션 전환 속도 (Lerp에 사용, 초당 Time Dilation 변화량) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "SlowMotion")
+	float SlowMotionTransitionSpeed;
+
+	/** 슬로우 모션 시 목표 채도 (0.0f = 흑백, 1.0f = 풀컬러) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "SlowMotion")
+	float SlowMotionTargetSaturation;
+
+	/** 채도 전환 속도 (Lerp에 사용) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "SlowMotion")
+	float SlowMotionSaturationTransitionSpeed;
+
+	/** 슬로우 모션 전환 타이머 핸들 */
+	FTimerHandle SlowMotionTimerHandle;
+	// =============== 슬로우 모션 및 흑백화 관련 UPROPERTY 추가 부분 끝 ===============
+
 
 	/** Called for movement input */
 	void Move(const FInputActionValue& Value);
@@ -86,19 +114,6 @@ protected:
 	/** 레이캐스트를 수행하고 결과를 처리하는 함수 */
 	void PerformRaycast() {} // 이제 TryClimb에서 호출
 
-
-
-public:
-	ATestProject2Character();
-
-	/** Returns CameraBoom subobject **/
-	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
-	/** Returns FollowCamera subobject **/
-	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
-
-	virtual void Tick(float DeltaTime) override; // Tick 함수에서 UpdateSlowMotionDilation 호출 대신 타이머 사용
-
-protected:
 	virtual void NotifyControllerChanged() override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
@@ -122,29 +137,20 @@ protected:
 	// 클라이밍 시작 시 몽타주가 이미 재생 중이었는지 (재시작 방지)
 	bool bMontageAlreadyPlayingOnClimb;
 
-	// =============== 슬로우 모션 추가 부분 시작 ===============
-/** 슬로우 모션 토글 Input Action */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
-	UInputAction* ToggleSlowMotionAction; // IA_ToggleSlowMotion과 매핑될 액션
-
-	/** 슬로우 모션 활성 여부 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SlowMotion")
-	bool bIsSlowMotionActive;
-
-	/** 슬로우 모션 시간 비율 (예: 0.2) */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "SlowMotion")
-	float SlowMotionTimeDilationTarget; // 목표 시간 딜레이 값 (0.2, 1.0)
-
-	/** 슬로우 모션 전환 속도 (Lerp에 사용, 초당 Time Dilation 변화량) */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "SlowMotion")
-	float SlowMotionTransitionSpeed;
-
-	/** 슬로우 모션 전환 타이머 핸들 */
-	FTimerHandle SlowMotionTimerHandle;
-
+	// 슬로우 모션 관련 함수들을 protected 섹션으로 옮깁니다.
 	/** 슬로우 모션 활성화/비활성화 토글 함수 */
 	void ToggleSlowMotion();
 
-	/** 시간 딜레이를 부드럽게 업데이트하는 함수 */
-	void UpdateSlowMotionDilation();
+	/** 시간 딜레이와 채도를 부드럽게 업데이트하는 함수 */
+	void UpdateSlowMotionDilationAndSaturation();
+
+public: // public 함수들은 그대로 유지
+	ATestProject2Character();
+
+	/** Returns CameraBoom subobject **/
+	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
+	/** Returns FollowCamera subobject **/
+	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+
+	virtual void Tick(float DeltaTime) override;
 };

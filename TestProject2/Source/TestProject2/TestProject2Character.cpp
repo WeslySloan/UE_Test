@@ -15,6 +15,11 @@
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimInstance.h"
 #include "Kismet/GameplayStatics.h" // UGameplayStatics::SetGlobalTimeDilation을 위해 포함
+#include "GameFramework/PlayerController.h" 
+
+// FPostProcessSettings를 사용하기 위해 필요한 헤더
+#include "Engine/PostProcessVolume.h" // UCameraComponent.h에 FPostProcessSettings가 이미 포함되어 있을 가능성이 높습니다.
+
 
 // 기존 로그 카테고리 정의
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
@@ -41,7 +46,6 @@ ATestProject2Character::ATestProject2Character()
 	GetCharacterMovement()->JumpZVelocity = 700.f;
 	GetCharacterMovement()->AirControl = 0.35f;
 	GetCharacterMovement()->MaxWalkSpeed = 500.f;
-	GetCharacterMovement()->MinAnalogWalkSpeed = 20.f;
 	GetCharacterMovement()->BrakingDecelerationWalking = 2000.f;
 	GetCharacterMovement()->BrakingDecelerationFalling = 1500.0f;
 
@@ -69,11 +73,22 @@ ATestProject2Character::ATestProject2Character()
 	MontageTotalLength = 600.0f;
 	bMontageAlreadyPlayingOnClimb = false;
 
-	// =============== 슬로우 모션 변수 초기화 시작 ===============
+	// =============== 슬로우 모션 변수 초기화 시작 (protected 멤버이므로 생성자에서 초기화 가능) ===============
 	bIsSlowMotionActive = false;
 	SlowMotionTimeDilationTarget = 0.2f; // 기본 슬로우 모션 속도 (20%)
-	SlowMotionTransitionSpeed = 2.0f; // 기본 전환 속도
+	SlowMotionTransitionSpeed = 2.0f;     // 기본 전환 속도
+
+	// 흑백화를 위한 변수 초기화
+	SlowMotionTargetSaturation = 0.0f; // 0.0f = 완전 흑백, 1.0f = 정상 컬러
+	SlowMotionSaturationTransitionSpeed = 3.0f; // 채도 전환 속도
 	// =============== 슬로우 모션 변수 초기화 끝 ===============
+
+	// UCameraComponent의 PostProcessSettings 활성화 관련 설정
+	// 생성자에서는 개별 PostProcessSettings 오버라이드 플래그를 설정하지 않습니다.
+	// 이는 UpdateSlowMotionDilationAndSaturation 함수 내에서 동적으로 제어됩니다.
+	// 만약 카메라 컴포넌트가 PostProcess설정을 사용하도록 기본적으로 활성화해야 한다면,
+	// UCameraComponent의 PostProcessSettings 구조체의 멤버인 bOverride_* 플래그들을 기본값으로 설정할 수 있습니다.
+	// 하지만, 현재 오류를 해결하기 위해 여기서는 아무것도 설정하지 않습니다.
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -114,7 +129,7 @@ void ATestProject2Character::SetupPlayerInputComponent(UInputComponent* PlayerIn
 		// =============== 슬로우 모션 토글 바인딩 시작 ===============
 		if (ToggleSlowMotionAction)
 		{
-			EnhancedInputComponent->BindAction(ToggleSlowMotionAction, ETriggerEvent::Started, this, &ATestProject2Character::ToggleSlowMotion); //
+			EnhancedInputComponent->BindAction(ToggleSlowMotionAction, ETriggerEvent::Started, this, &ATestProject2Character::ToggleSlowMotion);
 		}
 		// =============== 슬로우 모션 토글 바인딩 끝 ===============
 	}
@@ -135,7 +150,7 @@ void ATestProject2Character::Move(const FInputActionValue& Value)
 		return; // bIsClimbing이 true면 함수를 즉시 종료하여 이동 입력을 무시
 	}
 
-	if (Controller != nullptr) // 이전에 !bIsClimbing 조건이 있었으나, 위에서 먼저 처리했으므로 제거
+	if (Controller != nullptr)
 	{
 		// find out which way is forward
 		const FRotator Rotation = Controller->GetControlRotation();
@@ -156,7 +171,9 @@ void ATestProject2Character::Move(const FInputActionValue& Value)
 void ATestProject2Character::Look(const FInputActionValue& Value)
 {
 	// input is a Vector2D
+	// ===== F2D 대신 FVector2D를 사용합니다. (이전 오류 해결) =====
 	FVector2D LookAxisVector = Value.Get<FVector2D>();
+	// ===========================================
 
 	if (Controller != nullptr && !bIsClimbing)
 	{
@@ -171,8 +188,6 @@ void ATestProject2Character::TryClimb()
 	UE_LOG(LogTemp, Warning, TEXT("TryClimb function entered. bIsClimbing: %s"), bIsClimbing ? TEXT("True") : TEXT("False"));
 	if (bIsClimbing)
 	{
-		// 이 로그는 bIsClimbing이 true일 때만 출력됩니다.
-		/*UE_LOG(LogTemp, Warning, TEXT("Already climbing, returning."));*/
 		return;
 	}
 
@@ -198,13 +213,6 @@ void ATestProject2Character::TryClimb()
 	{
 		UE_LOG(LogTemp, Warning, TEXT("올라갈 수 있는 오브젝트 (%s) 를 발견했습니다."), *HitResult.GetActor()->GetName());
 
-		// ClimbTargetLocation 설정:
-		// 이 위치는 애니메이션이 끝났을 때 캐릭터가 '앞으로 나아가는' 동작까지 포함하여
-		// 최종적으로 착지해야 하는 바닥의 정확한 위치여야 합니다.
-		// 현재 ImpactPoint + Z 오프셋은 수직 클라이밍에만 맞춰져 있을 수 있습니다.
-		// 애니메이션이 끝난 후 캐릭터가 착지하는 바닥 위치를 정확히 측정하여 이 값을 설정해야 합니다.
-		// 예: ImpactPoint + FVector(X_Offset, Y_Offset, Z_Offset)
-		// 일단 기존 로직을 유지하되, 이 값이 애니메이션 최종 포즈의 착지점과 일치하는지 확인 필요.
 		ClimbTargetLocation = HitResult.ImpactPoint + FVector(0.0f, 0.0f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 10.0f); // 10.0f는 튜닝 필요
 
 		// 클라이밍 시작 시점의 위치 저장
@@ -213,7 +221,6 @@ void ATestProject2Character::TryClimb()
 		bIsClimbing = true;
 		GetCharacterMovement()->SetMovementMode(EMovementMode::MOVE_Flying); // 비행 모드 유지
 		GetCharacterMovement()->StopMovementImmediately(); // 즉시 이동 정지
-		// GetCharacterMovement()->Velocity = FVector::ZeroVector; // 더 이상 Tick에서 Velocity를 직접 제어하지 않으므로, 이 줄은 RemoveMovementInput을 대체하는 의미로만 남겨둠
 
 		// 몽타주 재생 (C++에서 직접 호출)
 		UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
@@ -250,37 +257,87 @@ void ATestProject2Character::ToggleSlowMotion()
 	bIsSlowMotionActive = !bIsSlowMotionActive; // 슬로우 모션 상태 토글
 
 	// 기존 타이머가 있다면 클리어
-	GetWorldTimerManager().ClearTimer(SlowMotionTimerHandle); //
+	GetWorldTimerManager().ClearTimer(SlowMotionTimerHandle);
 
-	// 새 타이머 시작 (UpdateSlowMotionDilation 함수를 반복 호출)
+	// 새 타이머 시작 (UpdateSlowMotionDilationAndSaturation 함수를 반복 호출)
 	GetWorldTimerManager().SetTimer(
 		SlowMotionTimerHandle,
 		this,
-		&ATestProject2Character::UpdateSlowMotionDilation,
-		0.01f, // 업데이트 주기 (예: 100fps로 업데이트)
+		&ATestProject2Character::UpdateSlowMotionDilationAndSaturation,
+		0.01f, // 업데이트 주기
 		true   // 루핑
 	);
 }
 
-// =============== 시간 딜레이 업데이트 함수 시작 ===============
-void ATestProject2Character::UpdateSlowMotionDilation()
+// =============== 시간 딜레이와 채도 업데이트 함수 시작 ===============
+void ATestProject2Character::UpdateSlowMotionDilationAndSaturation()
 {
-	float CurrentDilation = UGameplayStatics::GetGlobalTimeDilation(this); //
-	float TargetDilation = bIsSlowMotionActive ? SlowMotionTimeDilationTarget : 1.0f; //
+	// 1. 글로벌 시간 딜레이 조절
+	float CurrentDilation = UGameplayStatics::GetGlobalTimeDilation(this);
+	float TargetDilation = bIsSlowMotionActive ? SlowMotionTimeDilationTarget : 1.0f;
 
-	// Lerp (선형 보간)를 사용하여 부드럽게 시간 딜레이 변경
-	float NewDilation = FMath::FInterpTo(CurrentDilation, TargetDilation, GetWorld()->GetDeltaSeconds(), SlowMotionTransitionSpeed); //
+	float NewDilation = FMath::FInterpTo(CurrentDilation, TargetDilation, GetWorld()->GetDeltaSeconds(), SlowMotionTransitionSpeed);
+	UGameplayStatics::SetGlobalTimeDilation(this, NewDilation);
 
-	UGameplayStatics::SetGlobalTimeDilation(this, NewDilation); //
-
-	// 목표 딜레이에 거의 도달했으면 타이머 중지
-	if (FMath::IsNearlyEqual(NewDilation, TargetDilation, 0.01f)) // 오차 범위 0.01f
+	// 2. UCameraComponent의 Post Process 채도 조절
+	if (FollowCamera) // FollowCamera가 유효한지 확인
 	{
-		UGameplayStatics::SetGlobalTimeDilation(this, TargetDilation); // 정확히 목표 값으로 설정
+		// FollowCamera의 PostProcessSettings에 접근합니다.
+		FPostProcessSettings& CameraPPSettings = FollowCamera->PostProcessSettings; // 참조로 가져와서 바로 수정
+
+		// PostProcessSettings 구조체 멤버를 활성화합니다.
+		// bOverride_ColorSaturation을 활성화하여 ColorSaturation 속성이 적용되도록 합니다.
+		CameraPPSettings.bOverride_ColorSaturation = true;
+
+		// 현재 채도 값 가져오기
+		float CurrentSaturation = CameraPPSettings.ColorSaturation.X;
+
+		// 목표 채도 값 설정
+		float TargetSaturation = bIsSlowMotionActive ? SlowMotionTargetSaturation : 1.0f; // 흑백화 또는 정상 컬러
+
+		// 채도 Lerp (보간)
+		float NewSaturation = FMath::FInterpTo(CurrentSaturation, TargetSaturation, GetWorld()->GetDeltaSeconds(), SlowMotionSaturationTransitionSpeed);
+
+		// Post Process 설정에 채도 적용
+		CameraPPSettings.ColorSaturation = FVector4(NewSaturation, NewSaturation, NewSaturation, 1.0f); // 모든 채널(R,G,B)에 동일한 값 적용
+	}
+
+	// 3. 목표 딜레이와 채도에 거의 도달했으면 타이머 중지
+	bool bIsDilationNearlyEqual = FMath::IsNearlyEqual(NewDilation, TargetDilation, 0.01f);
+	bool bIsSaturationNearlyEqual = true; // 기본적으로 true로 설정
+
+	if (FollowCamera)
+	{
+		// 카메라의 최종 채도도 목표와 거의 같은지 확인
+		float CurrentCameraSaturation = FollowCamera->PostProcessSettings.ColorSaturation.X;
+		float TargetSaturation = bIsSlowMotionActive ? SlowMotionTargetSaturation : 1.0f;
+		bIsSaturationNearlyEqual = FMath::IsNearlyEqual(CurrentCameraSaturation, TargetSaturation, 0.01f);
+	}
+
+	if (bIsDilationNearlyEqual && bIsSaturationNearlyEqual)
+	{
+		// 최종적으로 정확한 Dilation 설정
+		UGameplayStatics::SetGlobalTimeDilation(this, TargetDilation);
+
+		// 최종적으로 정확한 채도 설정 (FollowCamera를 통해)
+		if (FollowCamera)
+		{
+			float FinalSaturation = bIsSlowMotionActive ? SlowMotionTargetSaturation : 1.0f;
+			FollowCamera->PostProcessSettings.ColorSaturation = FVector4(FinalSaturation, FinalSaturation, FinalSaturation, 1.0f);
+
+			// Post Process 설정이 완료되면 bOverride_ColorSaturation을 다시 false로 설정하여,
+			// 다른 Post Process Volume의 영향을 받을 수 있도록 하거나, 필요에 따라 true로 유지할 수 있습니다.
+			// 여기서는 목표 도달 후 슬로우 모션이 비활성화될 때만 덮어쓰기 해제합니다.
+			if (!bIsSlowMotionActive) // 슬로우 모션이 비활성화될 때만 덮어쓰기 해제
+			{
+				FollowCamera->PostProcessSettings.bOverride_ColorSaturation = false;
+			}
+		}
+
 		GetWorldTimerManager().ClearTimer(SlowMotionTimerHandle); // 타이머 중지
 	}
 }
-// =============== 시간 딜레이 업데이트 함수 끝 ===============
+// =============== 시간 딜레이와 채도 업데이트 함수 끝 ===============
 
 
 void ATestProject2Character::Tick(float DeltaTime)
@@ -297,29 +354,22 @@ void ATestProject2Character::Tick(float DeltaTime)
 			float CurrentMontageTime = GetWorld()->GetTimeSeconds() - MontageStartTime;
 			float AnimProgress = FMath::Clamp(CurrentMontageTime / MontageTotalLength, 0.0f, 1.0f);
 
-			// ===== 핵심 수정: ClimbZOffsetCurve를 사용하여 Z 오프셋 계산 =====
 			float ZOffsetAlpha = 0.0f;
 			if (ClimbZOffsetCurve) // 커브가 할당되어 있는지 확인
 			{
 				ZOffsetAlpha = ClimbZOffsetCurve->GetFloatValue(AnimProgress);
 			}
-			// =============================================================
 
-			// 목표 Z 위치를 커브에 따라 보간합니다.
-			// 시작 Z와 목표 Z의 차이 (총 이동량)에 ZOffsetAlpha를 곱합니다.
 			float TargetZ = FMath::Lerp(StartClimbLocation.Z, ClimbTargetLocation.Z, ZOffsetAlpha);
 
-			// 새로운 위치는 X와 Y는 시작 위치에서 목표 위치로 선형 보간하고, Z는 커브를 통해 얻은 TargetZ를 사용합니다.
 			FVector NewLocation = FVector(
 				FMath::Lerp(StartClimbLocation.X, ClimbTargetLocation.X, AnimProgress),
 				FMath::Lerp(StartClimbLocation.Y, ClimbTargetLocation.Y, AnimProgress),
 				TargetZ // Z축은 커브를 통해 계산된 값을 사용
 			);
 
-			// SetActorLocation으로 캐릭터 위치 강제 설정 (애니메이션 동기화)
 			SetActorLocation(NewLocation, false, nullptr, ETeleportType::TeleportPhysics);
 
-			// 캐릭터 무브먼트의 Velocity는 0으로 유지 (수동 이동 제어 안함)
 			GetCharacterMovement()->Velocity = FVector::ZeroVector;
 		}
 		else // 몽타주 재생이 끝났을 때
