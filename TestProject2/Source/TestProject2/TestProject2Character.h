@@ -12,6 +12,7 @@ class UCameraComponent;
 class UInputMappingContext;
 class UInputAction;
 struct FInputActionValue;
+class UAudioComponent; // UAudioComponent 헤더 추가
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 
@@ -79,6 +80,26 @@ protected: // 이 protected 섹션에 슬로우 모션 관련 함수와 기존 p
 	FTimerHandle SlowMotionTimerHandle;
 	// =============== 슬로우 모션 및 흑백화 관련 UPROPERTY 추가 부분 끝 ===============
 
+	// =============== BGM_AudioComponent 관련 UPROPERTY 추가 시작 ===============
+	/** BGM Audio Component */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Audio", meta = (AllowPrivateAccess = "true"))
+	UAudioComponent* BGM_AudioComponent;
+
+	/** BGM을 재생할 Sound Cue 또는 Sound Wave (블루프린트에서 할당) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio")
+	USoundBase* BGM_Sound;
+
+	/** 슬로우 모션 시 BGM의 목표 볼륨 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio")
+	float BGM_SlowMotionVolumeTarget;
+
+	/** BGM 볼륨 전환 속도 (Lerp에 사용) */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio")
+	float BGM_VolumeTransitionSpeed;
+
+	float OriginalBGMVolume; // 원래 BGM 볼륨을 저장할 변수
+	// =============== BGM_AudioComponent 관련 UPROPERTY 추가 끝 ===============
+
 
 	/** Called for movement input */
 	void Move(const FInputActionValue& Value);
@@ -143,6 +164,9 @@ protected: // 이 protected 섹션에 슬로우 모션 관련 함수와 기존 p
 
 	/** 시간 딜레이와 채도를 부드럽게 업데이트하는 함수 */
 	void UpdateSlowMotionDilationAndSaturation();
+
+	// BeginPlay 오버라이드
+	virtual void BeginPlay() override;
 
 public: // public 함수들은 그대로 유지
 	ATestProject2Character();

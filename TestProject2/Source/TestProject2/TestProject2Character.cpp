@@ -16,6 +16,9 @@
 #include "Animation/AnimInstance.h"
 #include "Kismet/GameplayStatics.h" // UGameplayStatics::SetGlobalTimeDilation을 위해 포함
 #include "GameFramework/PlayerController.h" 
+#include "Components/AudioComponent.h" // UAudioComponent 사용을 위한 헤더 추가
+#include "Sound/SoundCue.h" // USoundCue 사용을 위한 헤더 (필요시)
+#include "Sound/SoundWave.h" // USoundWave 사용을 위한 헤더 (필요시)
 
 // FPostProcessSettings를 사용하기 위해 필요한 헤더
 #include "Engine/PostProcessVolume.h" // UCameraComponent.h에 FPostProcessSettings가 이미 포함되어 있을 가능성이 높습니다.
@@ -76,7 +79,7 @@ ATestProject2Character::ATestProject2Character()
 	// =============== 슬로우 모션 변수 초기화 시작 (protected 멤버이므로 생성자에서 초기화 가능) ===============
 	bIsSlowMotionActive = false;
 	SlowMotionTimeDilationTarget = 0.2f; // 기본 슬로우 모션 속도 (20%)
-	SlowMotionTransitionSpeed = 2.0f;     // 기본 전환 속도
+	SlowMotionTransitionSpeed = 2.0f;    // 기본 전환 속도
 
 	// 흑백화를 위한 변수 초기화
 	SlowMotionTargetSaturation = 0.0f; // 0.0f = 완전 흑백, 1.0f = 정상 컬러
@@ -89,7 +92,39 @@ ATestProject2Character::ATestProject2Character()
 	// 만약 카메라 컴포넌트가 PostProcess설정을 사용하도록 기본적으로 활성화해야 한다면,
 	// UCameraComponent의 PostProcessSettings 구조체의 멤버인 bOverride_* 플래그들을 기본값으로 설정할 수 있습니다.
 	// 하지만, 현재 오류를 해결하기 위해 여기서는 아무것도 설정하지 않습니다.
+
+	// =============== BGM_AudioComponent 초기화 시작 ===============
+	BGM_AudioComponent = CreateDefaultSubobject<UAudioComponent>(TEXT("BGM_AudioComponent"));
+	BGM_AudioComponent->SetupAttachment(RootComponent); // 캐릭터의 루트 컴포넌트에 부착
+	BGM_AudioComponent->bAutoActivate = false; // 기본적으로 자동 재생 끄기 (BeginPlay에서 수동 재생)
+	BGM_AudioComponent->SetUISound(true); // UI 사운드로 설정하여 시간 딜레이의 영향을 받지 않도록 함 (BGM 목적)
+	BGM_AudioComponent->SetVolumeMultiplier(1.0f); // 초기 볼륨 1.0f
+	BGM_AudioComponent->SetPitchMultiplier(1.0f); // 초기 피치 1.0f (슬로우 모션 시 피치 변경을 원치 않으므로)
+
+	BGM_Sound = nullptr; // 블루프린트에서 할당될 사운드
+	BGM_SlowMotionVolumeTarget = 0.5f; // 슬로우 모션 시 BGM 목표 볼륨
+	BGM_VolumeTransitionSpeed = 5.0f; // BGM 볼륨 전환 속도
+	OriginalBGMVolume = 1.0f; // 원래 BGM 볼륨을 1.0으로 초기화
+	// =============== BGM_AudioComponent 초기화 끝 ===============
 }
+
+void ATestProject2Character::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// BGM_AudioComponent에 사운드가 할당되어 있다면 재생
+	if (BGM_AudioComponent && BGM_Sound)
+	{
+		BGM_AudioComponent->SetSound(BGM_Sound);
+		BGM_AudioComponent->Play();
+		OriginalBGMVolume = BGM_AudioComponent->VolumeMultiplier; // 현재 볼륨을 원본으로 저장
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("BGM_AudioComponent or BGM_Sound not set. BGM will not play."));
+	}
+}
+
 
 //////////////////////////////////////////////////////////////////////////
 // Input
@@ -265,7 +300,7 @@ void ATestProject2Character::ToggleSlowMotion()
 		this,
 		&ATestProject2Character::UpdateSlowMotionDilationAndSaturation,
 		0.01f, // 업데이트 주기
-		true   // 루핑
+		true    // 루핑
 	);
 }
 
@@ -282,39 +317,45 @@ void ATestProject2Character::UpdateSlowMotionDilationAndSaturation()
 	// 2. UCameraComponent의 Post Process 채도 조절
 	if (FollowCamera) // FollowCamera가 유효한지 확인
 	{
-		// FollowCamera의 PostProcessSettings에 접근합니다.
 		FPostProcessSettings& CameraPPSettings = FollowCamera->PostProcessSettings; // 참조로 가져와서 바로 수정
-
-		// PostProcessSettings 구조체 멤버를 활성화합니다.
-		// bOverride_ColorSaturation을 활성화하여 ColorSaturation 속성이 적용되도록 합니다.
 		CameraPPSettings.bOverride_ColorSaturation = true;
-
-		// 현재 채도 값 가져오기
 		float CurrentSaturation = CameraPPSettings.ColorSaturation.X;
-
-		// 목표 채도 값 설정
-		float TargetSaturation = bIsSlowMotionActive ? SlowMotionTargetSaturation : 1.0f; // 흑백화 또는 정상 컬러
-
-		// 채도 Lerp (보간)
+		float TargetSaturation = bIsSlowMotionActive ? SlowMotionTargetSaturation : 1.0f;
 		float NewSaturation = FMath::FInterpTo(CurrentSaturation, TargetSaturation, GetWorld()->GetDeltaSeconds(), SlowMotionSaturationTransitionSpeed);
-
-		// Post Process 설정에 채도 적용
-		CameraPPSettings.ColorSaturation = FVector4(NewSaturation, NewSaturation, NewSaturation, 1.0f); // 모든 채널(R,G,B)에 동일한 값 적용
+		CameraPPSettings.ColorSaturation = FVector4(NewSaturation, NewSaturation, NewSaturation, 1.0f);
 	}
 
-	// 3. 목표 딜레이와 채도에 거의 도달했으면 타이머 중지
+	// 3. BGM AudioComponent 볼륨 조절
+	if (BGM_AudioComponent)
+	{
+		float CurrentBGMVolume = BGM_AudioComponent->VolumeMultiplier;
+		float TargetBGMVolume = bIsSlowMotionActive ? BGM_SlowMotionVolumeTarget : OriginalBGMVolume; // 슬로우 모션 중이 아닐 때는 원래 볼륨으로 돌아감
+
+		float NewBGMVolume = FMath::FInterpTo(CurrentBGMVolume, TargetBGMVolume, GetWorld()->GetDeltaSeconds(), BGM_VolumeTransitionSpeed);
+		BGM_AudioComponent->SetVolumeMultiplier(NewBGMVolume);
+	}
+
+	// 4. 목표 딜레이, 채도, BGM 볼륨에 거의 도달했으면 타이머 중지
 	bool bIsDilationNearlyEqual = FMath::IsNearlyEqual(NewDilation, TargetDilation, 0.01f);
-	bool bIsSaturationNearlyEqual = true; // 기본적으로 true로 설정
+	bool bIsSaturationNearlyEqual = true;
+	bool bIsBGMVolumeNearlyEqual = true;
 
 	if (FollowCamera)
 	{
-		// 카메라의 최종 채도도 목표와 거의 같은지 확인
 		float CurrentCameraSaturation = FollowCamera->PostProcessSettings.ColorSaturation.X;
 		float TargetSaturation = bIsSlowMotionActive ? SlowMotionTargetSaturation : 1.0f;
 		bIsSaturationNearlyEqual = FMath::IsNearlyEqual(CurrentCameraSaturation, TargetSaturation, 0.01f);
 	}
 
-	if (bIsDilationNearlyEqual && bIsSaturationNearlyEqual)
+	if (BGM_AudioComponent)
+	{
+		float CurrentBGMVolume = BGM_AudioComponent->VolumeMultiplier;
+		float TargetBGMVolume = bIsSlowMotionActive ? BGM_SlowMotionVolumeTarget : OriginalBGMVolume;
+		bIsBGMVolumeNearlyEqual = FMath::IsNearlyEqual(CurrentBGMVolume, TargetBGMVolume, 0.01f);
+	}
+
+
+	if (bIsDilationNearlyEqual && bIsSaturationNearlyEqual && bIsBGMVolumeNearlyEqual)
 	{
 		// 최종적으로 정확한 Dilation 설정
 		UGameplayStatics::SetGlobalTimeDilation(this, TargetDilation);
@@ -324,14 +365,17 @@ void ATestProject2Character::UpdateSlowMotionDilationAndSaturation()
 		{
 			float FinalSaturation = bIsSlowMotionActive ? SlowMotionTargetSaturation : 1.0f;
 			FollowCamera->PostProcessSettings.ColorSaturation = FVector4(FinalSaturation, FinalSaturation, FinalSaturation, 1.0f);
-
-			// Post Process 설정이 완료되면 bOverride_ColorSaturation을 다시 false로 설정하여,
-			// 다른 Post Process Volume의 영향을 받을 수 있도록 하거나, 필요에 따라 true로 유지할 수 있습니다.
-			// 여기서는 목표 도달 후 슬로우 모션이 비활성화될 때만 덮어쓰기 해제합니다.
 			if (!bIsSlowMotionActive) // 슬로우 모션이 비활성화될 때만 덮어쓰기 해제
 			{
 				FollowCamera->PostProcessSettings.bOverride_ColorSaturation = false;
 			}
+		}
+
+		// 최종적으로 정확한 BGM 볼륨 설정
+		if (BGM_AudioComponent)
+		{
+			float FinalBGMVolume = bIsSlowMotionActive ? BGM_SlowMotionVolumeTarget : OriginalBGMVolume;
+			BGM_AudioComponent->SetVolumeMultiplier(FinalBGMVolume);
 		}
 
 		GetWorldTimerManager().ClearTimer(SlowMotionTimerHandle); // 타이머 중지
