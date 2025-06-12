@@ -97,7 +97,7 @@ ATestProject2Character::ATestProject2Character()
 	BGM_AudioComponent = CreateDefaultSubobject<UAudioComponent>(TEXT("BGM_AudioComponent"));
 	BGM_AudioComponent->SetupAttachment(RootComponent); // 캐릭터의 루트 컴포넌트에 부착
 	BGM_AudioComponent->bAutoActivate = false; // 기본적으로 자동 재생 끄기 (BeginPlay에서 수동 재생)
-	BGM_AudioComponent->SetUISound(true); // UI 사운드로 설정하여 시간 딜레이의 영향을 받지 않도록 함 (BGM 목적)
+	//BGM_AudioComponent->SetUISound(true); // UI 사운드로 설정하여 시간 딜레이의 영향을 받지 않도록 함 (BGM 목적)
 	BGM_AudioComponent->SetVolumeMultiplier(1.0f); // 초기 볼륨 1.0f
 	BGM_AudioComponent->SetPitchMultiplier(1.0f); // 초기 피치 1.0f (슬로우 모션 시 피치 변경을 원치 않으므로)
 
