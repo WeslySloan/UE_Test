@@ -20,9 +20,8 @@
 #include "Sound/SoundCue.h" // USoundCue 사용을 위한 헤더 (필요시)
 #include "Sound/SoundWave.h" // USoundWave 사용을 위한 헤더 (필요시)
 
-// FPostProcessSettings를 사용하기 위해 필요한 헤더
-#include "Engine/PostProcessVolume.h" // UCameraComponent.h에 FPostProcessSettings가 이미 포함되어 있을 가능성이 높습니다.
-
+#include "Engine/PostProcessVolume.h"
+#include "Curves/CurveFloat.h" // UCurveFloat 사용을 위한 헤더 추가
 
 // 기존 로그 카테고리 정의
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
@@ -79,7 +78,7 @@ ATestProject2Character::ATestProject2Character()
 	// =============== 슬로우 모션 변수 초기화 시작 (protected 멤버이므로 생성자에서 초기화 가능) ===============
 	bIsSlowMotionActive = false;
 	SlowMotionTimeDilationTarget = 0.2f; // 기본 슬로우 모션 속도 (20%)
-	SlowMotionTransitionSpeed = 2.0f;    // 기본 전환 속도
+	SlowMotionTransitionSpeed = 2.0f; // 기본 전환 속도
 
 	// 흑백화를 위한 변수 초기화
 	SlowMotionTargetSaturation = 0.0f; // 0.0f = 완전 흑백, 1.0f = 정상 컬러
@@ -99,12 +98,16 @@ ATestProject2Character::ATestProject2Character()
 	BGM_AudioComponent->bAutoActivate = false; // 기본적으로 자동 재생 끄기 (BeginPlay에서 수동 재생)
 	//BGM_AudioComponent->SetUISound(true); // UI 사운드로 설정하여 시간 딜레이의 영향을 받지 않도록 함 (BGM 목적)
 	BGM_AudioComponent->SetVolumeMultiplier(1.0f); // 초기 볼륨 1.0f
-	BGM_AudioComponent->SetPitchMultiplier(1.0f); // 초기 피치 1.0f (슬로우 모션 시 피치 변경을 원치 않으므로)
+	BGM_AudioComponent->SetPitchMultiplier(1.0f); // 초기 피치 1.0f (이제 우리가 직접 제어할 것이므로 유지)
 
 	BGM_Sound = nullptr; // 블루프린트에서 할당될 사운드
-	BGM_SlowMotionVolumeTarget = 0.5f; // 슬로우 모션 시 BGM 목표 볼륨
-	BGM_VolumeTransitionSpeed = 5.0f; // BGM 볼륨 전환 속도
-	OriginalBGMVolume = 1.0f; // 원래 BGM 볼륨을 1.0으로 초기화
+	// BGM_SlowMotionVolumeTarget = 0.5f; // 슬로우 모션 시 BGM 목표 볼륨 (주석 처리)
+	// BGM_VolumeTransitionSpeed = 5.0f; // BGM 볼륨 전환 속도 (주석 처리)
+	// OriginalBGMVolume = 1.0f; // 원래 BGM 볼륨을 1.0으로 초기화 (주석 처리)
+
+	BGM_SlowMotionPitchTarget = 0.5f; // 슬로우 모션 시 BGM 목표 피치
+	OriginalBGMPitch = 1.0f; // 원래 BGM 피치를 1.0으로 초기화
+
 	// =============== BGM_AudioComponent 초기화 끝 ===============
 }
 
@@ -117,7 +120,8 @@ void ATestProject2Character::BeginPlay()
 	{
 		BGM_AudioComponent->SetSound(BGM_Sound);
 		BGM_AudioComponent->Play();
-		OriginalBGMVolume = BGM_AudioComponent->VolumeMultiplier; // 현재 볼륨을 원본으로 저장
+		// OriginalBGMVolume = BGM_AudioComponent->VolumeMultiplier; // 현재 볼륨을 원본으로 저장 (주석 처리)
+		OriginalBGMPitch = BGM_AudioComponent->PitchMultiplier; // 현재 피치를 원본으로 저장
 	}
 	else
 	{
@@ -300,7 +304,7 @@ void ATestProject2Character::ToggleSlowMotion()
 		this,
 		&ATestProject2Character::UpdateSlowMotionDilationAndSaturation,
 		0.01f, // 업데이트 주기
-		true    // 루핑
+		true // 루핑
 	);
 }
 
@@ -325,20 +329,30 @@ void ATestProject2Character::UpdateSlowMotionDilationAndSaturation()
 		CameraPPSettings.ColorSaturation = FVector4(NewSaturation, NewSaturation, NewSaturation, 1.0f);
 	}
 
-	// 3. BGM AudioComponent 볼륨 조절
+	// 3. BGM AudioComponent 피치 조절 (볼륨 조절은 주석 처리)
 	if (BGM_AudioComponent)
 	{
-		float CurrentBGMVolume = BGM_AudioComponent->VolumeMultiplier;
-		float TargetBGMVolume = bIsSlowMotionActive ? BGM_SlowMotionVolumeTarget : OriginalBGMVolume; // 슬로우 모션 중이 아닐 때는 원래 볼륨으로 돌아감
+		// 볼륨 조절 로직 (주석 처리)
+		// float CurrentBGMVolume = BGM_AudioComponent->VolumeMultiplier;
+		// float TargetBGMVolume = bIsSlowMotionActive ? BGM_SlowMotionVolumeTarget : OriginalBGMVolume; 
+		// float NewBGMVolume = FMath::FInterpTo(CurrentBGMVolume, TargetBGMVolume, GetWorld()->GetDeltaSeconds(), BGM_VolumeTransitionSpeed);
+		// BGM_AudioComponent->SetVolumeMultiplier(NewBGMVolume);
 
-		float NewBGMVolume = FMath::FInterpTo(CurrentBGMVolume, TargetBGMVolume, GetWorld()->GetDeltaSeconds(), BGM_VolumeTransitionSpeed);
-		BGM_AudioComponent->SetVolumeMultiplier(NewBGMVolume);
+		// BGM 피치 조절 (새로 추가)
+		float CurrentBGMPitch = BGM_AudioComponent->PitchMultiplier;
+		float TargetBGMPitch = bIsSlowMotionActive ? BGM_SlowMotionPitchTarget : OriginalBGMPitch;
+
+		// 전환 속도는 필요에 따라 BGM_VolumeTransitionSpeed를 재활용하거나 새로운 변수를 만들 수 있습니다.
+		// 여기서는 SlowMotionTransitionSpeed를 사용하거나 새로운 BGM_PitchTransitionSpeed를 만드는 것을 고려합니다.
+		// 임시로 SlowMotionTransitionSpeed를 사용하되, 필요에 따라 BGM_PitchTransitionSpeed를 추가하는 것을 권장합니다.
+		float NewBGMPitch = FMath::FInterpTo(CurrentBGMPitch, TargetBGMPitch, GetWorld()->GetDeltaSeconds(), SlowMotionTransitionSpeed);
+		BGM_AudioComponent->SetPitchMultiplier(NewBGMPitch);
 	}
 
-	// 4. 목표 딜레이, 채도, BGM 볼륨에 거의 도달했으면 타이머 중지
+	// 4. 목표 딜레이, 채도, BGM 피치에 거의 도달했으면 타이머 중지
 	bool bIsDilationNearlyEqual = FMath::IsNearlyEqual(NewDilation, TargetDilation, 0.01f);
 	bool bIsSaturationNearlyEqual = true;
-	bool bIsBGMVolumeNearlyEqual = true;
+	bool bIsBGMPitchNearlyEqual = true; // <-- 볼륨 대신 피치로 변경
 
 	if (FollowCamera)
 	{
@@ -349,13 +363,19 @@ void ATestProject2Character::UpdateSlowMotionDilationAndSaturation()
 
 	if (BGM_AudioComponent)
 	{
-		float CurrentBGMVolume = BGM_AudioComponent->VolumeMultiplier;
-		float TargetBGMVolume = bIsSlowMotionActive ? BGM_SlowMotionVolumeTarget : OriginalBGMVolume;
-		bIsBGMVolumeNearlyEqual = FMath::IsNearlyEqual(CurrentBGMVolume, TargetBGMVolume, 0.01f);
+		// 볼륨 NearlyEqual 확인 (주석 처리)
+		// float CurrentBGMVolume = BGM_AudioComponent->VolumeMultiplier;
+		// float TargetBGMVolume = bIsSlowMotionActive ? BGM_SlowMotionVolumeTarget : OriginalBGMVolume;
+		// bIsBGMVolumeNearlyEqual = FMath::IsNearlyEqual(CurrentBGMVolume, TargetBGMVolume, 0.01f);
+
+		// BGM 피치 NearlyEqual 확인 (새로 추가)
+		float CurrentBGMPitch = BGM_AudioComponent->PitchMultiplier;
+		float TargetBGMPitch = bIsSlowMotionActive ? BGM_SlowMotionPitchTarget : OriginalBGMPitch;
+		bIsBGMPitchNearlyEqual = FMath::IsNearlyEqual(CurrentBGMPitch, TargetBGMPitch, 0.01f);
 	}
 
 
-	if (bIsDilationNearlyEqual && bIsSaturationNearlyEqual && bIsBGMVolumeNearlyEqual)
+	if (bIsDilationNearlyEqual && bIsSaturationNearlyEqual && bIsBGMPitchNearlyEqual) // <-- bIsBGMVolumeNearlyEqual 대신 bIsBGMPitchNearlyEqual 사용
 	{
 		// 최종적으로 정확한 Dilation 설정
 		UGameplayStatics::SetGlobalTimeDilation(this, TargetDilation);
@@ -371,11 +391,14 @@ void ATestProject2Character::UpdateSlowMotionDilationAndSaturation()
 			}
 		}
 
-		// 최종적으로 정확한 BGM 볼륨 설정
+		// 최종적으로 정확한 BGM 피치 설정 (볼륨 설정은 주석 처리)
 		if (BGM_AudioComponent)
 		{
-			float FinalBGMVolume = bIsSlowMotionActive ? BGM_SlowMotionVolumeTarget : OriginalBGMVolume;
-			BGM_AudioComponent->SetVolumeMultiplier(FinalBGMVolume);
+			// float FinalBGMVolume = bIsSlowMotionActive ? BGM_SlowMotionVolumeTarget : OriginalBGMVolume;
+			// BGM_AudioComponent->SetVolumeMultiplier(FinalBGMVolume);
+
+			float FinalBGMPitch = bIsSlowMotionActive ? BGM_SlowMotionPitchTarget : OriginalBGMPitch;
+			BGM_AudioComponent->SetPitchMultiplier(FinalBGMPitch);
 		}
 
 		GetWorldTimerManager().ClearTimer(SlowMotionTimerHandle); // 타이머 중지

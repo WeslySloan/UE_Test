@@ -13,6 +13,8 @@ class UInputMappingContext;
 class UInputAction;
 struct FInputActionValue;
 class UAudioComponent; // UAudioComponent 헤더 추가
+class USoundBase; // USoundBase 헤더 추가 (BGM_Sound 타입)
+class UCurveFloat; // UCurveFloat 헤더 추가 (ClimbZOffsetCurve 타입)
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 
@@ -89,15 +91,21 @@ protected: // 이 protected 섹션에 슬로우 모션 관련 함수와 기존 p
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio")
 	USoundBase* BGM_Sound;
 
-	/** 슬로우 모션 시 BGM의 목표 볼륨 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio")
-	float BGM_SlowMotionVolumeTarget;
+	// 슬로우 모션 시 BGM의 목표 볼륨 (주석 처리)
+	// UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio")
+	// float BGM_SlowMotionVolumeTarget;
 
-	/** BGM 볼륨 전환 속도 (Lerp에 사용) */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio")
-	float BGM_VolumeTransitionSpeed;
+	// BGM 볼륨 전환 속도 (주석 처리)
+	// UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio")
+	// float BGM_VolumeTransitionSpeed;
 
-	float OriginalBGMVolume; // 원래 BGM 볼륨을 저장할 변수
+	// float OriginalBGMVolume; // 원래 BGM 볼륨을 저장할 변수 (주석 처리)
+
+	/** 슬로우 모션 시 BGM의 목표 피치 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio")
+	float BGM_SlowMotionPitchTarget; // <-- 새로 추가
+
+	float OriginalBGMPitch; // 원래 BGM 피치를 저장할 변수 <-- 새로 추가
 	// =============== BGM_AudioComponent 관련 UPROPERTY 추가 끝 ===============
 
 
