@@ -245,6 +245,18 @@ void ATestProject2Character::TryClimb()
 		Params
 	);
 
+	// 디버깅용 Line Trace 그리기 수정
+	DrawDebugLine(
+		GetWorld(),
+		StartLocation,
+		EndLocation,
+		bHit ? FColor::Green : FColor::Red,
+		false,      // bPersistentLines: 한 프레임만 표시
+		0.1f,       // LifeTime: 0.1초 동안 표시 (원하는 시간으로 조절)
+		SDPG_Foreground, // <-- 이 부분을 추가 (또는 단순히 1)
+		2.0f        // Thickness: 선의 두께 (원하는 두께로 조절)
+	);
+
 	// 디버깅용 Line Trace 그리기
 	DrawDebugLine(GetWorld(), StartLocation, EndLocation, bHit ? FColor::Green : FColor::Red, false, 0.1f);
 
