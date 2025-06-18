@@ -63,7 +63,7 @@ ATestProject2Character::ATestProject2Character()
 	FollowCamera->bUsePawnControlRotation = false; // Camera does not rotate relative to arm
 
 	// "올라가기" 관련 변수 초기화
-	ClimbTraceOffset = FVector(0.0f, 0.0f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+	ClimbTraceOffset = FVector(0.0f, 0.0f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight() - 30.0f);
 	ClimbTraceDistance = 150.0f;
 	ClimbSpeed = 250.0f; // ClimbSpeed는 이제 사용하지 않습니다. (아래 Tick 함수에서 Velocity 설정 로직 삭제)
 	bIsClimbing = false;
@@ -264,7 +264,7 @@ void ATestProject2Character::TryClimb()
 	{
 		UE_LOG(LogTemp, Warning, TEXT("올라갈 수 있는 오브젝트 (%s) 를 발견했습니다."), *HitResult.GetActor()->GetName());
 
-		ClimbTargetLocation = HitResult.ImpactPoint + FVector(0.0f, 0.0f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 10.0f); // 10.0f는 튜닝 필요
+		ClimbTargetLocation = HitResult.ImpactPoint + FVector(0.0f, 0.0f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 20.0f); // 10.0f는 튜닝 필요
 
 		// 클라이밍 시작 시점의 위치 저장
 		StartClimbLocation = GetActorLocation();
