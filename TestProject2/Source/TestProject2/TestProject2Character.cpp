@@ -423,6 +423,31 @@ void ATestProject2Character::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	DrawDebugBox(
+		GetWorld(),
+		GetActorLocation(),           // 박스 중심 위치
+		FVector(5.0f, 5.0f, 5.0f),    // 박스 절반 크기 (half extents)
+		FColor::Blue,                 // 박스 색상
+		false,                        // 영구적으로 그릴 것인가? (false = 매 프레임 다시 그림)
+		-1.0f,                        // 지속 시간 (-1.0f = 한 프레임만)
+		0,                            // 뎁스 우선순위
+		1.0f                          // 라인 두께
+	);
+
+	if (bIsClimbing)
+	{
+		DrawDebugBox(
+			GetWorld(),
+			ClimbTargetLocation,      // 박스 중심 위치
+			FVector(10.0f, 10.0f, 10.0f), // 목표점은 좀 더 크게
+			FColor::Red,                  // 빨간색
+			false,                        // 영구적으로 그릴 것인가?
+			-1.0f,                        // 지속 시간
+			0,                            // 뎁스 우선순위
+			2.0f                          // 라인 두께
+		);
+	}
+
 	// Climb 로직은 그대로 유지
 	if (bIsClimbing)
 	{
