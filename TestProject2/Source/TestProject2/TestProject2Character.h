@@ -91,21 +91,11 @@ protected: // 이 protected 섹션에 슬로우 모션 관련 함수와 기존 p
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio")
 	USoundBase* BGM_Sound;
 
-	// 슬로우 모션 시 BGM의 목표 볼륨 (주석 처리)
-	// UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio")
-	// float BGM_SlowMotionVolumeTarget;
-
-	// BGM 볼륨 전환 속도 (주석 처리)
-	// UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio")
-	// float BGM_VolumeTransitionSpeed;
-
-	// float OriginalBGMVolume; // 원래 BGM 볼륨을 저장할 변수 (주석 처리)
-
 	/** 슬로우 모션 시 BGM의 목표 피치 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio")
-	float BGM_SlowMotionPitchTarget; // <-- 새로 추가
+	float BGM_SlowMotionPitchTarget;
 
-	float OriginalBGMPitch; // 원래 BGM 피치를 저장할 변수 <-- 새로 추가
+	float OriginalBGMPitch; // 원래 BGM 피치를 저장할 변수
 	// =============== BGM_AudioComponent 관련 UPROPERTY 추가 끝 ===============
 
 
@@ -123,25 +113,45 @@ protected: // 이 protected 섹션에 슬로우 모션 관련 함수와 기존 p
 	UPROPERTY(EditDefaultsOnly, Category = Climbing)
 	float ClimbTraceDistance;
 
-	/** 올라가는 속도 */
+	/** 올라가는 속도 (현재 Tick에서 직접 사용되지 않고 ClimbInterpSpeed가 사용됨) */
 	UPROPERTY(EditDefaultsOnly, Category = Climbing)
-	float ClimbSpeed; // 이 값은 현재 Tick에서 사용되지 않음
+	float ClimbSpeed; // 이 값은 현재 사용하지 않음 (ClimbInterpSpeed가 이동 속도를 제어)
 
 	/** 올라가는 중인지 여부 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Climbing)
 	bool bIsClimbing;
 
 	/** 올라갈 목표 위치 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Climbing)
 	FVector ClimbTargetLocation;
 
 	/** "올라가기 시도" 액션 함수 */
 	void TryClimb();
 
+	// === 추가된 클라이밍 관련 변수 및 함수 ===
+
+	/** 클라이밍 진행을 업데이트할 함수 (타이머에 의해 호출) */
+	UFUNCTION()
+	void UpdateClimbProgress();
+
+	/** 클라이밍 완료 시 호출될 함수 */
+	UFUNCTION()
+	void FinishClimb();
+
+	/** 클라이밍 보간 속도 */
+	UPROPERTY(EditDefaultsOnly, Category = Climbing)
+	float ClimbInterpSpeed;
+
+	/** 클라이밍 타이머 핸들 */
+	FTimerHandle ClimbTimerHandle;
+
+
 	// 블루프린트에서 구현할 수 있는 이벤트
 	UFUNCTION(BlueprintImplementableEvent, Category = "Climbing")
 	void OnClimbStarted();
 
-	/** 레이캐스트를 수행하고 결과를 처리하는 함수 */
-	void PerformRaycast() {} // 이제 TryClimb에서 호출
+	/** 레이캐스트를 수행하고 결과를 처리하는 함수 (현재 TryClimb에서 직접 수행) */
+	void PerformRaycast(); // 이 함수는 현재 사용되지 않으며 TryClimb에서 직접 로직이 수행됩니다.
 
 	virtual void NotifyControllerChanged() override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -152,9 +162,10 @@ protected: // 이 protected 섹션에 슬로우 모션 관련 함수와 기존 p
 
 	/** 애니메이션 진행률 (0.0 ~ 1.0) 에 따른 Z 오프셋 커브 (블루프린트에서 설정) */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Climbing)
-	UCurveFloat* ClimbZOffsetCurve;
+	UCurveFloat* ClimbZOffsetCurve; // <--- 이 부분이 중요!
 
 	// 클라이밍 시작 시점의 캐릭터 위치
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Climbing)
 	FVector StartClimbLocation;
 
 	// 몽타주가 시작될 때의 타임 스탬프 (재생 시간을 추적하기 위함)

@@ -15,13 +15,13 @@
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimInstance.h"
 #include "Kismet/GameplayStatics.h" // UGameplayStatics::SetGlobalTimeDilation을 위해 포함
-#include "GameFramework/PlayerController.h" 
+#include "GameFramework/PlayerController.h"
 #include "Components/AudioComponent.h" // UAudioComponent 사용을 위한 헤더 추가
 #include "Sound/SoundCue.h" // USoundCue 사용을 위한 헤더 (필요시)
 #include "Sound/SoundWave.h" // USoundWave 사용을 위한 헤더 (필요시)
-
-#include "Engine/PostProcessVolume.h"
+#include "Engine/PostProcessVolume.h" // UCameraComponent의 PostProcessSettings에 접근하기 위해 필요
 #include "Curves/CurveFloat.h" // UCurveFloat 사용을 위한 헤더 추가
+#include "TimerManager.h" // FTimerHandle, GetWorldTimerManager().SetTimer 등을 위해 필요
 
 // 기존 로그 카테고리 정의
 DEFINE_LOG_CATEGORY(LogTemplateCharacter);
@@ -67,12 +67,14 @@ ATestProject2Character::ATestProject2Character()
 	ClimbTraceDistance = 150.0f;
 	ClimbSpeed = 250.0f; // ClimbSpeed는 이제 사용하지 않습니다. (아래 Tick 함수에서 Velocity 설정 로직 삭제)
 	bIsClimbing = false;
-	ClimbTargetLocation = FVector::ZeroVector;
+	ClimbTargetLocation = FVector::ZeroVector; // 기본값 초기화
+	StartClimbLocation = FVector::ZeroVector; // 기본값 초기화
+	ClimbInterpSpeed = 5.0f; // 클라이밍 보간 속도 초기화 (새로 추가)
 
 	ClimbMontageRef = nullptr; // 블루프린트에서 할당
-	StartClimbLocation = FVector::ZeroVector;
+	ClimbZOffsetCurve = nullptr; // 블루프린트에서 할당 <--- 이 부분이 nullptr로 잘 초기화 되어있어야 합니다.
 	MontageStartTime = 0.0f;
-	MontageTotalLength = 600.0f;
+	MontageTotalLength = 600.0f; // 실제 몽타주 길이에 맞게 설정하거나 동적으로 가져와야 함
 	bMontageAlreadyPlayingOnClimb = false;
 
 	// =============== 슬로우 모션 변수 초기화 시작 (protected 멤버이므로 생성자에서 초기화 가능) ===============
@@ -85,26 +87,14 @@ ATestProject2Character::ATestProject2Character()
 	SlowMotionSaturationTransitionSpeed = 3.0f; // 채도 전환 속도
 	// =============== 슬로우 모션 변수 초기화 끝 ===============
 
-	// UCameraComponent의 PostProcessSettings 활성화 관련 설정
-	// 생성자에서는 개별 PostProcessSettings 오버라이드 플래그를 설정하지 않습니다.
-	// 이는 UpdateSlowMotionDilationAndSaturation 함수 내에서 동적으로 제어됩니다.
-	// 만약 카메라 컴포넌트가 PostProcess설정을 사용하도록 기본적으로 활성화해야 한다면,
-	// UCameraComponent의 PostProcessSettings 구조체의 멤버인 bOverride_* 플래그들을 기본값으로 설정할 수 있습니다.
-	// 하지만, 현재 오류를 해결하기 위해 여기서는 아무것도 설정하지 않습니다.
-
 	// =============== BGM_AudioComponent 초기화 시작 ===============
 	BGM_AudioComponent = CreateDefaultSubobject<UAudioComponent>(TEXT("BGM_AudioComponent"));
 	BGM_AudioComponent->SetupAttachment(RootComponent); // 캐릭터의 루트 컴포넌트에 부착
 	BGM_AudioComponent->bAutoActivate = false; // 기본적으로 자동 재생 끄기 (BeginPlay에서 수동 재생)
-	//BGM_AudioComponent->SetUISound(true); // UI 사운드로 설정하여 시간 딜레이의 영향을 받지 않도록 함 (BGM 목적)
 	BGM_AudioComponent->SetVolumeMultiplier(1.0f); // 초기 볼륨 1.0f
-	BGM_AudioComponent->SetPitchMultiplier(1.0f); // 초기 피치 1.0f (이제 우리가 직접 제어할 것이므로 유지)
+	BGM_AudioComponent->SetPitchMultiplier(1.0f); // 초기 피치 1.0f
 
 	BGM_Sound = nullptr; // 블루프린트에서 할당될 사운드
-	// BGM_SlowMotionVolumeTarget = 0.5f; // 슬로우 모션 시 BGM 목표 볼륨 (주석 처리)
-	// BGM_VolumeTransitionSpeed = 5.0f; // BGM 볼륨 전환 속도 (주석 처리)
-	// OriginalBGMVolume = 1.0f; // 원래 BGM 볼륨을 1.0으로 초기화 (주석 처리)
-
 	BGM_SlowMotionPitchTarget = 0.5f; // 슬로우 모션 시 BGM 목표 피치
 	OriginalBGMPitch = 1.0f; // 원래 BGM 피치를 1.0으로 초기화
 
@@ -120,7 +110,6 @@ void ATestProject2Character::BeginPlay()
 	{
 		BGM_AudioComponent->SetSound(BGM_Sound);
 		BGM_AudioComponent->Play();
-		// OriginalBGMVolume = BGM_AudioComponent->VolumeMultiplier; // 현재 볼륨을 원본으로 저장 (주석 처리)
 		OriginalBGMPitch = BGM_AudioComponent->PitchMultiplier; // 현재 피치를 원본으로 저장
 	}
 	else
@@ -210,11 +199,9 @@ void ATestProject2Character::Move(const FInputActionValue& Value)
 void ATestProject2Character::Look(const FInputActionValue& Value)
 {
 	// input is a Vector2D
-	// ===== F2D 대신 FVector2D를 사용합니다. (이전 오류 해결) =====
 	FVector2D LookAxisVector = Value.Get<FVector2D>();
-	// ===========================================
 
-	if (Controller != nullptr && !bIsClimbing)
+	if (Controller != nullptr && !bIsClimbing) // 클라이밍 중에는 시야 조작도 제한 (선택 사항)
 	{
 		// add yaw and pitch input to controller
 		AddControllerYawInput(LookAxisVector.X);
@@ -225,18 +212,24 @@ void ATestProject2Character::Look(const FInputActionValue& Value)
 void ATestProject2Character::TryClimb()
 {
 	UE_LOG(LogTemp, Warning, TEXT("TryClimb function entered. bIsClimbing: %s"), bIsClimbing ? TEXT("True") : TEXT("False"));
+
+	// 이미 클라이밍 중이면 함수를 종료
 	if (bIsClimbing)
 	{
 		return;
 	}
 
+	// Line Trace의 시작점 계산
 	FVector StartLocation = GetActorLocation() + GetActorForwardVector() * ClimbTraceOffset.X + FVector(0.0f, 0.0f, ClimbTraceOffset.Z);
-	FVector EndLocation = StartLocation + GetActorForwardVector() * ClimbTraceDistance;
-	FHitResult HitResult;
-	FCollisionQueryParams Params;
-	Params.AddIgnoredActor(this); // 자기 자신은 무시
 
-	// Line Trace 수행
+	// Line Trace의 끝점 계산
+	FVector EndLocation = StartLocation + GetActorForwardVector() * ClimbTraceDistance;
+
+	FHitResult HitResult; // Line Trace 결과를 저장할 변수
+	FCollisionQueryParams Params; // 충돌 쿼리 파라미터
+	Params.AddIgnoredActor(this); // Trace 시 자기 자신은 무시하도록 설정 (캐릭터 자신과의 충돌 방지)
+
+	// 실제 Line Trace 수행
 	bool bHit = GetWorld()->LineTraceSingleByChannel(
 		HitResult,
 		StartLocation,
@@ -245,61 +238,173 @@ void ATestProject2Character::TryClimb()
 		Params
 	);
 
-	// 디버깅용 Line Trace 그리기 수정
+	// 디버깅용 Line Trace 그리기 (에디터/게임에서 시각적으로 확인)
 	DrawDebugLine(
 		GetWorld(),
 		StartLocation,
 		EndLocation,
 		bHit ? FColor::Green : FColor::Red,
-		false,      // bPersistentLines: 한 프레임만 표시
-		0.1f,       // LifeTime: 0.1초 동안 표시 (원하는 시간으로 조절)
-		SDPG_Foreground, // <-- 이 부분을 추가 (또는 단순히 1)
-		2.0f        // Thickness: 선의 두께 (원하는 두께로 조절)
+		false,
+		0.1f,
+		SDPG_Foreground, // 항상 위에 보이도록 설정
+		2.0f
 	);
 
-	// 디버깅용 Line Trace 그리기
-	DrawDebugLine(GetWorld(), StartLocation, EndLocation, bHit ? FColor::Green : FColor::Red, false, 0.1f);
-
+	// Line Trace가 오브젝트와 충돌했고, 충돌한 액터가 유효하며, "Climbable" 태그를 가지고 있다면
 	if (bHit && HitResult.GetActor() && HitResult.GetActor()->Tags.Contains(FName("Climbable")))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("올라갈 수 있는 오브젝트 (%s) 를 발견했습니다."), *HitResult.GetActor()->GetName());
 
-		ClimbTargetLocation = HitResult.ImpactPoint + FVector(0.0f, 0.0f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 20.0f); // 10.0f는 튜닝 필요
+		// === 기존 ClimbTargetLocation 계산 방식 (수정될 부분) ===
+		// float VerticalOffset = GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 10.0f;
+		// float InwardOffset = 15.0f;
+		// ClimbTargetLocation = HitResult.ImpactPoint - (HitResult.ImpactNormal * InwardOffset) + FVector(0.0f, 0.0f, VerticalOffset);
 
-		// 클라이밍 시작 시점의 위치 저장
+		// === 새로운 ClimbTargetLocation 계산 방식 ===
+		// 1. 벽에 닿은 충돌 지점 (ImpactPoint)을 기준으로 합니다.
+		FVector BaseLocation = HitResult.ImpactPoint;
+
+		// 2. 캐릭터 캡슐의 반지름만큼 벽면 법선 반대 방향으로 이동시켜 벽에 딱 붙도록 합니다.
+		//    GetScaledCapsuleRadius()는 캡슐의 반지름을 반환합니다.
+		float CapsuleRadius = GetCapsuleComponent()->GetScaledCapsuleRadius();
+		FVector AdjustedXY = BaseLocation + (HitResult.ImpactNormal * CapsuleRadius); // 벽에서 캡슐 반지름만큼 밖으로
+
+		// 3. Z축은 캐릭터 캡슐의 절반 높이와 약간의 추가 오프셋을 더하여 올라갈 최종 높이를 설정합니다.
+		float VerticalOffset = GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 30.0f; // 기존 오프셋 유지
+		float TargetZ = HitResult.ImpactPoint.Z + VerticalOffset;
+
+		// 최종 ClimbTargetLocation 설정
+		// X, Y는 벽에 딱 붙는 위치, Z는 올라갈 최종 높이
+		ClimbTargetLocation = FVector(AdjustedXY.X, AdjustedXY.Y, TargetZ);
+
+		// 중요: 시작 시 캐릭터의 현재 X, Y, Z가 아닌, 벽에 붙은 상태에서의 시작 X,Y와 현재 Z를 StartClimbLocation으로 설정합니다.
+		// 이렇게 해야 X,Y 이동 보간이 벽면에서 시작됩니다.
+		StartClimbLocation = GetActorLocation(); // 현재 위치를 시작점으로 설정하고,
+
+		// 하지만, 사실상 X, Y는 벽면에 붙은 지점으로 바로 이동시키거나, 매우 빠른 속도로 보간해야 합니다.
+		// 만약 애니메이션과 함께 부드럽게 벽으로 다가가길 원한다면, 추가적인 중간 보간 단계가 필요할 수 있습니다.
+		// 여기서는 일단 최종 목표 Z는 위에 계산된 TargetZ를 사용하고, X,Y는 캐릭터의 현재 X,Y를 시작으로 합니다.
+		// 하지만, 더 나은 방법은 StartClimbLocation의 X,Y도 벽에 붙은 위치로 조정하는 것입니다.
+		// 예를 들어,
+		// FVector TempStartXY = GetActorLocation() + (HitResult.ImpactNormal * (CapsuleRadius - GetCapsuleComponent()->GetScaledCapsuleRadius()));
+		// StartClimbLocation = FVector(TempStartXY.X, TempStartXY.Y, GetActorLocation().Z);
+		// 이 부분은 몽타주와 캐릭터 움직임이 어떻게 어우러질지에 따라 달라질 수 있습니다.
+		// 현재 구현 방식은 시작 시점에서 최종 목적지까지 (X,Y)와 (Z)를 보간합니다.
+
+		// 클라이밍 시작 시점의 캐릭터 위치 저장 (기존 방식 유지)
 		StartClimbLocation = GetActorLocation();
 
-		bIsClimbing = true;
-		GetCharacterMovement()->SetMovementMode(EMovementMode::MOVE_Flying); // 비행 모드 유지
-		GetCharacterMovement()->StopMovementImmediately(); // 즉시 이동 정지
 
-		// 몽타주 재생 (C++에서 직접 호출)
+		bIsClimbing = true; // 클라이밍 상태 활성화
+
+		// 캐릭터 이동 모드를 MOVE_Flying으로 변경하여 중력 및 지면과의 상호작용 무시
+		// 클라이밍 애니메이션 및 로직에 따라 자유롭게 움직이도록 함
+		GetCharacterMovement()->SetMovementMode(EMovementMode::MOVE_Flying);
+		GetCharacterMovement()->StopMovementImmediately(); // 즉시 현재 이동 정지
+
+		// 몽타주 재생 (블루프린트에서 ClimbMontageRef를 할당해야 함)
 		UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
 		if (AnimInstance && ClimbMontageRef)
 		{
-			if (AnimInstance->Montage_IsPlaying(ClimbMontageRef)) // 몽타주가 이미 재생 중인 경우
-			{
-				AnimInstance->Montage_Stop(0.0f, ClimbMontageRef); // 기존 몽타주 정지 후 새로 재생
-				bMontageAlreadyPlayingOnClimb = true;
-			}
-			else
-			{
-				bMontageAlreadyPlayingOnClimb = false;
-			}
-			AnimInstance->Montage_Play(ClimbMontageRef, 1.0f); // 1.0f 속도로 재생
-			MontageStartTime = GetWorld()->GetTimeSeconds(); // 몽타주 재생 시작 시간 기록
-			MontageTotalLength = ClimbMontageRef->GetPlayLength(); // 몽타주 총 길이 기록
-			UE_LOG(LogTemp, Warning, TEXT("Montage Play Called from C++! Total Length: %f"), MontageTotalLength);
+			AnimInstance->Montage_Play(ClimbMontageRef);
+			MontageStartTime = GetWorld()->GetTimeSeconds(); // 몽타주 시작 시간 기록
+			MontageTotalLength = ClimbMontageRef->GetPlayLength(); // 몽타주 총 길이 가져오기
 		}
-		else
-		{
-			UE_LOG(LogTemp, Error, TEXT("Failed to play montage! Mesh, AnimInstance or ClimbMontageRef is null."));
-		}
+
+		OnClimbStarted(); // 블루프린트 이벤트 호출
+
+		// 클라이밍 시작 시점과 목표 지점 사이를 보간하는 타이머 설정 (UpdateClimbProgress 함수 호출)
+		// GetWorld()->GetDeltaSeconds()를 주기 값으로 사용하여 매 프레임마다 호출되도록 함
+		GetWorldTimerManager().SetTimer(ClimbTimerHandle, this, &ATestProject2Character::UpdateClimbProgress, GetWorld()->GetDeltaSeconds(), true);
 	}
 	else
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Raycast X"));
+		// Line Trace가 유효한 climbable 오브젝트를 찾지 못했을 때의 로그
+		UE_LOG(LogTemp, Warning, TEXT("Raycast X (올라갈 수 있는 오브젝트를 찾지 못했습니다)."));
 	}
+}
+
+void ATestProject2Character::UpdateClimbProgress()
+{
+	// 클라이밍 상태가 아니면 타이머를 중지하고 함수 종료
+	if (!bIsClimbing)
+	{
+		GetWorldTimerManager().ClearTimer(ClimbTimerHandle);
+		return;
+	}
+
+	UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
+	float AnimProgress = 0.0f; // 애니메이션 진행률 (0.0 ~ 1.0)
+
+	// 몽타주 재생 여부 확인 및 진행률 계산
+	if (AnimInstance && ClimbMontageRef && AnimInstance->Montage_IsPlaying(ClimbMontageRef))
+	{
+		float CurrentMontageTime = GetWorld()->GetTimeSeconds() - MontageStartTime;
+		AnimProgress = FMath::Clamp(CurrentMontageTime / MontageTotalLength, 0.0f, 1.0f);
+	}
+	else // 몽타주가 재생되지 않거나 끝났을 경우
+	{
+		// 몽타주가 끝났음을 감지, 클라이밍을 종료합니다.
+		FinishClimb();
+		return;
+	}
+
+
+	FVector CurrentLocation = GetActorLocation();
+
+	// X, Y 축은 ClimbTargetLocation으로 FInterpTo 보간
+	// Z 축은 ClimbZOffsetCurve와 함께 보간
+	FVector TargetLocationXY = FVector(ClimbTargetLocation.X, ClimbTargetLocation.Y, CurrentLocation.Z); // Z는 나중에 계산
+
+	FVector NewLocationXY = FMath::VInterpTo(CurrentLocation, TargetLocationXY, GetWorld()->GetDeltaSeconds(), ClimbInterpSpeed);
+
+	// Z축 계산: ClimbZOffsetCurve를 사용하여 StartClimbLocation.Z와 ClimbTargetLocation.Z 사이를 보간
+	float TargetZ = CurrentLocation.Z; // 기본값으로 현재 Z를 설정
+	if (ClimbZOffsetCurve)
+	{
+		// AnimProgress를 사용하여 커브 값 가져오기
+		float ZOffsetAlpha = ClimbZOffsetCurve->GetFloatValue(AnimProgress);
+		// StartClimbLocation.Z에서 ClimbTargetLocation.Z까지 ZOffsetAlpha에 따라 선형 보간
+		TargetZ = FMath::Lerp(StartClimbLocation.Z, ClimbTargetLocation.Z, ZOffsetAlpha);
+	}
+	else
+	{
+		// 커브가 없으면 단순히 목표 Z로 보간
+		TargetZ = FMath::FInterpTo(CurrentLocation.Z, ClimbTargetLocation.Z, GetWorld()->GetDeltaSeconds(), ClimbInterpSpeed);
+	}
+
+	FVector NewLocation = FVector(NewLocationXY.X, NewLocationXY.Y, TargetZ);
+	SetActorLocation(NewLocation, false, nullptr, ETeleportType::TeleportPhysics);
+
+	// 목표 위치에 충분히 가까워졌는지 확인 (X,Y,Z 모두)
+	// 몽타주 진행률이 1.0에 가까워지거나 목표 위치에 충분히 가까워지면 종료
+	if (AnimProgress >= 0.99f || FVector::DistSquared(CurrentLocation, ClimbTargetLocation) < FMath::Square(5.0f))
+	{
+		FinishClimb(); // 클라이밍 완료 로직 호출
+	}
+}
+
+void ATestProject2Character::FinishClimb()
+{
+	UE_LOG(LogTemp, Warning, TEXT("Climbing Finished!"));
+
+	bIsClimbing = false; // 클라이밍 상태 비활성화
+	GetWorldTimerManager().ClearTimer(ClimbTimerHandle); // 클라이밍 타이머 정지
+
+	// 캐릭터 이동 모드를 다시 Walking으로 변경하여 일반적인 이동 가능하게 함
+	GetCharacterMovement()->SetMovementMode(EMovementMode::MOVE_Walking);
+
+	// 최종적으로 목표 위치에 정확히 스냅
+	SetActorLocation(ClimbTargetLocation);
+
+	// 몽타주가 재생 중이었다면 정지 (선택 사항, 몽타주가 자연스럽게 끝나도록 둘 수도 있음)
+	UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
+	if (AnimInstance && ClimbMontageRef && AnimInstance->Montage_IsPlaying(ClimbMontageRef))
+	{
+		AnimInstance->Montage_Stop(0.2f, ClimbMontageRef); // 부드럽게 정지
+	}
+
+	// 필요하다면 클라이밍 완료 애니메이션 재생 등 추가 로직
 }
 
 // =============== 슬로우 모션 토글 함수 시작 ===============
@@ -334,29 +439,20 @@ void ATestProject2Character::UpdateSlowMotionDilationAndSaturation()
 	if (FollowCamera) // FollowCamera가 유효한지 확인
 	{
 		FPostProcessSettings& CameraPPSettings = FollowCamera->PostProcessSettings; // 참조로 가져와서 바로 수정
-		CameraPPSettings.bOverride_ColorSaturation = true;
-		float CurrentSaturation = CameraPPSettings.ColorSaturation.X;
-		float TargetSaturation = bIsSlowMotionActive ? SlowMotionTargetSaturation : 1.0f;
+		CameraPPSettings.bOverride_ColorSaturation = true; // 채도 오버라이드 활성화
+
+		float CurrentSaturation = CameraPPSettings.ColorSaturation.X; // 현재 채도
+		float TargetSaturation = bIsSlowMotionActive ? SlowMotionTargetSaturation : 1.0f; // 목표 채도
 		float NewSaturation = FMath::FInterpTo(CurrentSaturation, TargetSaturation, GetWorld()->GetDeltaSeconds(), SlowMotionSaturationTransitionSpeed);
-		CameraPPSettings.ColorSaturation = FVector4(NewSaturation, NewSaturation, NewSaturation, 1.0f);
+		CameraPPSettings.ColorSaturation = FVector4(NewSaturation, NewSaturation, NewSaturation, 1.0f); // 모든 채널에 적용
 	}
 
-	// 3. BGM AudioComponent 피치 조절 (볼륨 조절은 주석 처리)
+	// 3. BGM AudioComponent 피치 조절
 	if (BGM_AudioComponent)
 	{
-		// 볼륨 조절 로직 (주석 처리)
-		// float CurrentBGMVolume = BGM_AudioComponent->VolumeMultiplier;
-		// float TargetBGMVolume = bIsSlowMotionActive ? BGM_SlowMotionVolumeTarget : OriginalBGMVolume; 
-		// float NewBGMVolume = FMath::FInterpTo(CurrentBGMVolume, TargetBGMVolume, GetWorld()->GetDeltaSeconds(), BGM_VolumeTransitionSpeed);
-		// BGM_AudioComponent->SetVolumeMultiplier(NewBGMVolume);
-
-		// BGM 피치 조절 (새로 추가)
 		float CurrentBGMPitch = BGM_AudioComponent->PitchMultiplier;
 		float TargetBGMPitch = bIsSlowMotionActive ? BGM_SlowMotionPitchTarget : OriginalBGMPitch;
 
-		// 전환 속도는 필요에 따라 BGM_VolumeTransitionSpeed를 재활용하거나 새로운 변수를 만들 수 있습니다.
-		// 여기서는 SlowMotionTransitionSpeed를 사용하거나 새로운 BGM_PitchTransitionSpeed를 만드는 것을 고려합니다.
-		// 임시로 SlowMotionTransitionSpeed를 사용하되, 필요에 따라 BGM_PitchTransitionSpeed를 추가하는 것을 권장합니다.
 		float NewBGMPitch = FMath::FInterpTo(CurrentBGMPitch, TargetBGMPitch, GetWorld()->GetDeltaSeconds(), SlowMotionTransitionSpeed);
 		BGM_AudioComponent->SetPitchMultiplier(NewBGMPitch);
 	}
@@ -364,7 +460,7 @@ void ATestProject2Character::UpdateSlowMotionDilationAndSaturation()
 	// 4. 목표 딜레이, 채도, BGM 피치에 거의 도달했으면 타이머 중지
 	bool bIsDilationNearlyEqual = FMath::IsNearlyEqual(NewDilation, TargetDilation, 0.01f);
 	bool bIsSaturationNearlyEqual = true;
-	bool bIsBGMPitchNearlyEqual = true; // <-- 볼륨 대신 피치로 변경
+	bool bIsBGMPitchNearlyEqual = true;
 
 	if (FollowCamera)
 	{
@@ -375,24 +471,18 @@ void ATestProject2Character::UpdateSlowMotionDilationAndSaturation()
 
 	if (BGM_AudioComponent)
 	{
-		// 볼륨 NearlyEqual 확인 (주석 처리)
-		// float CurrentBGMVolume = BGM_AudioComponent->VolumeMultiplier;
-		// float TargetBGMVolume = bIsSlowMotionActive ? BGM_SlowMotionVolumeTarget : OriginalBGMVolume;
-		// bIsBGMVolumeNearlyEqual = FMath::IsNearlyEqual(CurrentBGMVolume, TargetBGMVolume, 0.01f);
-
-		// BGM 피치 NearlyEqual 확인 (새로 추가)
 		float CurrentBGMPitch = BGM_AudioComponent->PitchMultiplier;
 		float TargetBGMPitch = bIsSlowMotionActive ? BGM_SlowMotionPitchTarget : OriginalBGMPitch;
 		bIsBGMPitchNearlyEqual = FMath::IsNearlyEqual(CurrentBGMPitch, TargetBGMPitch, 0.01f);
 	}
 
 
-	if (bIsDilationNearlyEqual && bIsSaturationNearlyEqual && bIsBGMPitchNearlyEqual) // <-- bIsBGMVolumeNearlyEqual 대신 bIsBGMPitchNearlyEqual 사용
+	if (bIsDilationNearlyEqual && bIsSaturationNearlyEqual && bIsBGMPitchNearlyEqual)
 	{
 		// 최종적으로 정확한 Dilation 설정
 		UGameplayStatics::SetGlobalTimeDilation(this, TargetDilation);
 
-		// 최종적으로 정확한 채도 설정 (FollowCamera를 통해)
+		// 최종적으로 정확한 채도 설정
 		if (FollowCamera)
 		{
 			float FinalSaturation = bIsSlowMotionActive ? SlowMotionTargetSaturation : 1.0f;
@@ -403,12 +493,9 @@ void ATestProject2Character::UpdateSlowMotionDilationAndSaturation()
 			}
 		}
 
-		// 최종적으로 정확한 BGM 피치 설정 (볼륨 설정은 주석 처리)
+		// 최종적으로 정확한 BGM 피치 설정
 		if (BGM_AudioComponent)
 		{
-			// float FinalBGMVolume = bIsSlowMotionActive ? BGM_SlowMotionVolumeTarget : OriginalBGMVolume;
-			// BGM_AudioComponent->SetVolumeMultiplier(FinalBGMVolume);
-
 			float FinalBGMPitch = bIsSlowMotionActive ? BGM_SlowMotionPitchTarget : OriginalBGMPitch;
 			BGM_AudioComponent->SetPitchMultiplier(FinalBGMPitch);
 		}
@@ -423,41 +510,18 @@ void ATestProject2Character::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	// Climb 로직은 그대로 유지
+	// 클라이밍 중에는 CharacterMovementComponent가 MOVE_Flying 상태이고
+	// UpdateClimbProgress 함수가 타이머에 의해 위치 보간을 처리하므로,
+	// Tick에서는 단순히 속도를 0으로 유지하여 불필요한 움직임을 방지합니다.
 	if (bIsClimbing)
 	{
-		UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
-
-		if (AnimInstance && ClimbMontageRef && AnimInstance->Montage_IsPlaying(ClimbMontageRef))
-		{
-			float CurrentMontageTime = GetWorld()->GetTimeSeconds() - MontageStartTime;
-			float AnimProgress = FMath::Clamp(CurrentMontageTime / MontageTotalLength, 0.0f, 1.0f);
-
-			float ZOffsetAlpha = 0.0f;
-			if (ClimbZOffsetCurve) // 커브가 할당되어 있는지 확인
-			{
-				ZOffsetAlpha = ClimbZOffsetCurve->GetFloatValue(AnimProgress);
-			}
-
-			float TargetZ = FMath::Lerp(StartClimbLocation.Z, ClimbTargetLocation.Z, ZOffsetAlpha);
-
-			FVector NewLocation = FVector(
-				FMath::Lerp(StartClimbLocation.X, ClimbTargetLocation.X, AnimProgress),
-				FMath::Lerp(StartClimbLocation.Y, ClimbTargetLocation.Y, AnimProgress),
-				TargetZ // Z축은 커브를 통해 계산된 값을 사용
-			);
-
-			SetActorLocation(NewLocation, false, nullptr, ETeleportType::TeleportPhysics);
-
-			GetCharacterMovement()->Velocity = FVector::ZeroVector;
-		}
-		else // 몽타주 재생이 끝났을 때
-		{
-			// 클라이밍 종료
-			bIsClimbing = false;
-			GetCharacterMovement()->SetMovementMode(EMovementMode::MOVE_Walking);
-			SetActorLocation(ClimbTargetLocation); // 마지막으로 정확한 목표 위치로 설정
-			UE_LOG(LogTemp, Warning, TEXT("Climbing Finished, Montage ended."));
-		}
+		GetCharacterMovement()->Velocity = FVector::ZeroVector;
 	}
+	// bIsClimbing이 아닐 때는 일반적인 CharacterMovementComponent 로직이 작동
+}
+
+void ATestProject2Character::PerformRaycast()
+{
+	// 이 함수는 현재 사용되지 않음.
+	// TryClimb 함수가 직접 Line Trace를 수행합니다.
 }
