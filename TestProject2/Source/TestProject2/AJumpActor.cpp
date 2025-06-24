@@ -39,7 +39,6 @@ AJumpActor::AJumpActor()
 void AJumpActor::BeginPlay()
 {
     Super::BeginPlay();
-
 }
 
 // 트리거 박스 오버랩 시작 이벤트
@@ -67,8 +66,8 @@ void AJumpActor::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* Oth
         UE_LOG(LogTemp, Warning, TEXT("Character launched towards Target: %s with Velocity: %s"), *TargetLandingLocation.ToString(), *LaunchVelocity.ToString());
 
         // (선택 사항) 점프 시 사운드나 파티클 재생
-        // UGameplayStatics::PlaySoundAtLocation(this, JumpSound, GetActorLocation());
         // UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), JumpParticle, GetActorLocation());
+        // UGameplayStatics::PlaySoundAtLocation(this, JumpSound, GetActorLocation());
     }
 }
 
