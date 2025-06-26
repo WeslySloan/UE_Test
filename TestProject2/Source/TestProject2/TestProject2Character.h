@@ -7,182 +7,157 @@
 #include "Logging/LogMacros.h"
 #include "TestProject2Character.generated.h"
 
+// 기존 로그 카테고리 정의 (이미 있을 수 있음)
+DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
+
 class USpringArmComponent;
 class UCameraComponent;
 class UInputMappingContext;
 class UInputAction;
 struct FInputActionValue;
-class UAudioComponent; // UAudioComponent 헤더 추가
-class USoundBase; // USoundBase 헤더 추가 (BGM_Sound 타입)
-class UCurveFloat; // UCurveFloat 헤더 추가 (ClimbZOffsetCurve 타입)
-
-DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
+class UAudioComponent; // UAudioComponent 선언을 위해 추가
+class USoundCue;      // USoundCue 선언을 위해 추가
+class USoundWave;     // USoundWave 선언을 위해 추가
 
 UCLASS(config = Game)
 class ATestProject2Character : public ACharacter
 {
-	GENERATED_BODY()
+    GENERATED_BODY()
 
-	/** Camera boom positioning the camera behind the character */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
-	USpringArmComponent* CameraBoom;
+    /** Camera boom positioning the camera behind the character */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
+    USpringArmComponent* CameraBoom;
 
-	/** Follow camera */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
-	UCameraComponent* FollowCamera;
+    /** Follow camera */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
+    UCameraComponent* FollowCamera;
 
-	/** MappingContext */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
-	UInputMappingContext* DefaultMappingContext;
+    /** MappingContext */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+    UInputMappingContext* DefaultMappingContext;
 
-	/** Jump Input Action */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
-	UInputAction* JumpAction;
+    /** Jump Input Action */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+    UInputAction* JumpAction;
 
-	/** Move Input Action */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
-	UInputAction* MoveAction;
+    /** Move Input Action */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+    UInputAction* MoveAction;
 
-	/** Look Input Action */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
-	UInputAction* LookAction;
+    /** Look Input Action */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+    UInputAction* LookAction;
 
-	/** "올라가기 시도" 액션 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
-	UInputAction* ClimbAction;
+    // "올라가기" Input Action
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+    UInputAction* ClimbAction;
 
-protected: // 이 protected 섹션에 슬로우 모션 관련 함수와 기존 protected 멤버들이 위치합니다.
+    // =============== 슬로우 모션 Input Action 시작 ===============
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+    UInputAction* ToggleSlowMotionAction;
+    // =============== 슬로우 모션 Input Action 끝 ===============
 
-	// =============== 슬로우 모션 및 흑백화 관련 UPROPERTY 추가 부분 시작 ===============
-	/** 슬로우 모션 토글 Input Action */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
-	UInputAction* ToggleSlowMotionAction; // IA_ToggleSlowMotion과 매핑될 액션
+    // =============== BGM 토글 Input Action 추가 시작 ===============
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+    UInputAction* ToggleBGMAction; // BGM 토글을 위한 새로운 Input Action
+    // =============== BGM 토글 Input Action 추가 끝 ===============
 
-	/** 슬로우 모션 활성 여부 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SlowMotion")
-	bool bIsSlowMotionActive;
+public:
+    ATestProject2Character();
 
-	/** 슬로우 모션 시간 비율 (예: 0.2) */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "SlowMotion")
-	float SlowMotionTimeDilationTarget; // 목표 시간 딜레이 값 (0.2, 1.0)
+protected:
+    /** Called for movement input */
+    void Move(const FInputActionValue& Value);
 
-	/** 슬로우 모션 전환 속도 (Lerp에 사용, 초당 Time Dilation 변화량) */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "SlowMotion")
-	float SlowMotionTransitionSpeed;
+    /** Called for looking input */
+    void Look(const FInputActionValue& Value);
 
-	/** 슬로우 모션 시 목표 채도 (0.0f = 흑백, 1.0f = 풀컬러) */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "SlowMotion")
-	float SlowMotionTargetSaturation;
+    // "올라가기" 함수
+    void TryClimb();
 
-	/** 채도 전환 속도 (Lerp에 사용) */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "SlowMotion")
-	float SlowMotionSaturationTransitionSpeed;
+    // =============== 슬로우 모션 토글 함수 시작 ===============
+    void ToggleSlowMotion();
+    void UpdateSlowMotionDilationAndSaturation();
+    // =============== 슬로우 모션 토글 함수 끝 ===============
 
-	/** 슬로우 모션 전환 타이머 핸들 */
-	FTimerHandle SlowMotionTimerHandle;
-	// =============== 슬로우 모션 및 흑백화 관련 UPROPERTY 추가 부분 끝 ===============
+    // =============== BGM 토글 함수 추가 시작 ===============
+    void ToggleBGMVolume(); // BGM 볼륨 토글을 처리할 함수
+    // =============== BGM 토글 함수 추가 끝 ===============
 
-	// =============== BGM_AudioComponent 관련 UPROPERTY 추가 시작 ===============
-	/** BGM Audio Component */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Audio", meta = (AllowPrivateAccess = "true"))
-	UAudioComponent* BGM_AudioComponent;
+protected:
+    // APawn interface
+    virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
-	/** BGM을 재생할 Sound Cue 또는 Sound Wave (블루프린트에서 할당) */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio")
-	USoundBase* BGM_Sound;
+    // To add mapping context
+    virtual void NotifyControllerChanged() override;
 
-	// 슬로우 모션 시 BGM의 목표 볼륨 (주석 처리)
-	// UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio")
-	// float BGM_SlowMotionVolumeTarget;
+    // Called when the game starts or when spawned
+    virtual void BeginPlay() override;
 
-	// BGM 볼륨 전환 속도 (주석 처리)
-	// UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio")
-	// float BGM_VolumeTransitionSpeed;
+public:
+    /** Returns CameraBoom subobject **/
+    FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
+    /** Returns FollowCamera subobject **/
+    FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 
-	// float OriginalBGMVolume; // 원래 BGM 볼륨을 저장할 변수 (주석 처리)
+    // "올라가기" 관련 변수
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climb")
+    FVector ClimbTraceOffset;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climb")
+    float ClimbTraceDistance;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climb")
+    float ClimbSpeed; // 이제 사용하지 않습니다.
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Climb")
+    bool bIsClimbing;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Climb")
+    FVector ClimbTargetLocation;
 
-	/** 슬로우 모션 시 BGM의 목표 피치 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio")
-	float BGM_SlowMotionPitchTarget; // <-- 새로 추가
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climb")
+    UAnimMontage* ClimbMontageRef; // 블루프린트에서 할당
+    FVector StartClimbLocation;
+    float MontageStartTime;
+    float MontageTotalLength;
+    bool bMontageAlreadyPlayingOnClimb;
 
-	float OriginalBGMPitch; // 원래 BGM 피치를 저장할 변수 <-- 새로 추가
-	// =============== BGM_AudioComponent 관련 UPROPERTY 추가 끝 ===============
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Climb")
+    UCurveFloat* ClimbZOffsetCurve; // Z축 오프셋을 위한 커브
 
+    // =============== 슬로우 모션 변수 시작 ===============
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SlowMotion")
+    bool bIsSlowMotionActive;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SlowMotion")
+    float SlowMotionTimeDilationTarget;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SlowMotion")
+    float SlowMotionTransitionSpeed;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SlowMotion")
+    float SlowMotionTargetSaturation;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SlowMotion")
+    float SlowMotionSaturationTransitionSpeed;
 
-	/** Called for movement input */
-	void Move(const FInputActionValue& Value);
+    FTimerHandle SlowMotionTimerHandle; // 슬로우 모션 타이머 핸들
+    // =============== 슬로우 모션 변수 끝 ===============
 
-	/** Called for looking input */
-	void Look(const FInputActionValue& Value);
+    // =============== BGM AudioComponent 변수 시작 (이미 존재) ===============
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Audio)
+    UAudioComponent* BGM_AudioComponent;
 
-	/** 레이캐스트 시작 위치 오프셋 (캐릭터 기준) */
-	UPROPERTY(EditDefaultsOnly, Category = Climbing)
-	FVector ClimbTraceOffset;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Audio)
+    USoundBase* BGM_Sound; // USoundCue 대신 USoundBase를 사용하여 SoundCue 또는 SoundWave 모두 할당 가능
 
-	/** 레이캐스트 최대 거리 */
-	UPROPERTY(EditDefaultsOnly, Category = Climbing)
-	float ClimbTraceDistance;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = Audio)
+    float BGM_SlowMotionPitchTarget;
 
-	/** 올라가는 속도 */
-	UPROPERTY(EditDefaultsOnly, Category = Climbing)
-	float ClimbSpeed; // 이 값은 현재 Tick에서 사용되지 않음
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Audio)
+    float OriginalBGMPitch;
 
-	/** 올라가는 중인지 여부 */
-	bool bIsClimbing;
+    // =============== BGM 토글을 위한 변수 추가 시작 ===============
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Audio)
+    bool bIsBGMPlaying; // BGM이 현재 재생 중인지 여부 (토글 상태 추적)
 
-	/** 올라갈 목표 위치 */
-	FVector ClimbTargetLocation;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Audio)
+    float OriginalBGMVolume; // BGM의 원래 볼륨을 저장하여 토글 시 복원
+    // =============== BGM 토글을 위한 변수 추가 끝 ===============
 
-	/** "올라가기 시도" 액션 함수 */
-	void TryClimb();
-
-	// 블루프린트에서 구현할 수 있는 이벤트
-	UFUNCTION(BlueprintImplementableEvent, Category = "Climbing")
-	void OnClimbStarted();
-
-	/** 레이캐스트를 수행하고 결과를 처리하는 함수 */
-	void PerformRaycast() {} // 이제 TryClimb에서 호출
-
-	virtual void NotifyControllerChanged() override;
-	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
-
-	/** "올라가기" 몽타주 참조 (블루프린트에서 할당) */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Climbing)
-	UAnimMontage* ClimbMontageRef;
-
-	/** 애니메이션 진행률 (0.0 ~ 1.0) 에 따른 Z 오프셋 커브 (블루프린트에서 설정) */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = Climbing)
-	UCurveFloat* ClimbZOffsetCurve;
-
-	// 클라이밍 시작 시점의 캐릭터 위치
-	FVector StartClimbLocation;
-
-	// 몽타주가 시작될 때의 타임 스탬프 (재생 시간을 추적하기 위함)
-	float MontageStartTime;
-
-	// 몽타주의 총 길이 (한 번만 계산)
-	float MontageTotalLength;
-
-	// 클라이밍 시작 시 몽타주가 이미 재생 중이었는지 (재시작 방지)
-	bool bMontageAlreadyPlayingOnClimb;
-
-	// 슬로우 모션 관련 함수들을 protected 섹션으로 옮깁니다.
-	/** 슬로우 모션 활성화/비활성화 토글 함수 */
-	void ToggleSlowMotion();
-
-	/** 시간 딜레이와 채도를 부드럽게 업데이트하는 함수 */
-	void UpdateSlowMotionDilationAndSaturation();
-
-	// BeginPlay 오버라이드
-	virtual void BeginPlay() override;
-
-public: // public 함수들은 그대로 유지
-	ATestProject2Character();
-
-	/** Returns CameraBoom subobject **/
-	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
-	/** Returns FollowCamera subobject **/
-	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
-
-	virtual void Tick(float DeltaTime) override;
+    // Tick 함수 (이미 존재)
+    virtual void Tick(float DeltaTime) override;
 };
