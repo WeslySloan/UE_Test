@@ -107,7 +107,7 @@ void ATestProject2Character::BeginPlay()
     if (BGM_AudioComponent && BGM_Sound)
     {
         BGM_AudioComponent->SetSound(BGM_Sound);
-        BGM_AudioComponent->Play(); // 사운드재생코드
+        //BGM_AudioComponent->Play(); // 사운드재생코드
         OriginalBGMVolume = BGM_AudioComponent->VolumeMultiplier; // BeginPlay 시점의 실제 볼륨을 OriginalBGMVolume에 저장
         OriginalBGMPitch = BGM_AudioComponent->PitchMultiplier;
         bIsBGMPlaying = true; // BeginPlay에서 재생 시작했으므로 상태를 True로 설정
