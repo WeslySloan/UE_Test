@@ -103,22 +103,21 @@ void ATestProject2Character::BeginPlay()
 {
     Super::BeginPlay();
 
-    // BGM_AudioComponent에 사운드가 할당되어 있다면 재생
     if (BGM_AudioComponent && BGM_Sound)
     {
         BGM_AudioComponent->SetSound(BGM_Sound);
-        //BGM_AudioComponent->Play(); // 사운드재생코드
-        OriginalBGMVolume = BGM_AudioComponent->VolumeMultiplier; // BeginPlay 시점의 실제 볼륨을 OriginalBGMVolume에 저장
+        //BGM_AudioComponent->Play(); // <-- 이 줄은 계속 주석 처리 상태로 둡니다.
+        OriginalBGMVolume = BGM_AudioComponent->VolumeMultiplier;
         OriginalBGMPitch = BGM_AudioComponent->PitchMultiplier;
-        bIsBGMPlaying = true; // BeginPlay에서 재생 시작했으므로 상태를 True로 설정
+        bIsBGMPlaying = false; // 게임 시작 시 BGM이 재생되지 않으므로, 초기 상태를 false로 설정합니다.
+        // 이렇게 해야 첫 M 키 입력 시 BGM이 켜집니다.
     }
     else
     {
         UE_LOG(LogTemp, Warning, TEXT("BGM_AudioComponent or BGM_Sound not set. BGM will not play."));
-        bIsBGMPlaying = false; // 재생되지 않으면 상태를 False로 설정
+        bIsBGMPlaying = false;
     }
 }
-
 
 //////////////////////////////////////////////////////////////////////////
 // Input
@@ -376,13 +375,13 @@ void ATestProject2Character::ToggleBGMVolume()
         return;
     }
 
-    bIsBGMPlaying = !bIsBGMPlaying; // BGM 재생 상태 토글
+    bIsBGMPlaying = !bIsBGMPlaying; // BGM 재생 상태 토글 (True -> False, False -> True)
 
     if (bIsBGMPlaying)
     {
-        // BGM을 켜는 경우: 원래 볼륨으로 설정
-        BGM_AudioComponent->SetVolumeMultiplier(OriginalBGMVolume);
-        BGM_AudioComponent->Play(); // 정지되어 있었다면 다시 재생
+        // BGM을 켜는 경우: 원래 볼륨으로 설정하고 재생 시작
+        BGM_AudioComponent->SetVolumeMultiplier(OriginalBGMVolume); // OriginalBGMVolume은 BeginPlay에서 1.0f로 초기화됨
+        BGM_AudioComponent->Play(); // 사운드 재생 시작
         UE_LOG(LogTemp, Warning, TEXT("BGM ON. Volume: %f"), OriginalBGMVolume);
     }
     else
